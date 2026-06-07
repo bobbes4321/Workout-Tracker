@@ -48,3 +48,18 @@ export function relativeDay(iso: string): string {
   if (iso === isoDate(yest)) return 'Yesterday'
   return prettyDate(iso)
 }
+
+/** "Today" / "Yesterday" / "3 days ago" / "2 weeks ago" / date for older. */
+export function fromNow(iso: string): string {
+  const [ty, tm, td] = isoDate().split('-').map(Number)
+  const [y, m, d] = iso.split('-').map(Number)
+  const today = new Date(ty, tm - 1, td)
+  const that = new Date(y, m - 1, d)
+  const diff = Math.round((today.getTime() - that.getTime()) / 86400000)
+  if (diff <= 0) return 'Today'
+  if (diff === 1) return 'Yesterday'
+  if (diff < 7) return `${diff} days ago`
+  if (diff < 14) return 'Last week'
+  if (diff < 30) return `${Math.floor(diff / 7)} weeks ago`
+  return prettyDate(iso)
+}

@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 const navItems = [
-  { to: '/', label: 'Log', icon: PlusIcon, end: true },
-  { to: '/history', label: 'History', icon: ListIcon },
+  { to: '/', label: 'Home', icon: HomeIcon, end: true },
+  { to: '/log', label: 'Log', icon: PlusIcon },
   { to: '/progress', label: 'Progress', icon: ChartIcon },
   { to: '/records', label: 'Records', icon: TrophyIcon },
   { to: '/settings', label: 'Settings', icon: GearIcon },
@@ -74,14 +74,17 @@ function PlusIcon({ active }: IconProps) {
   )
 }
 
-function ListIcon() {
+function HomeIcon({ active }: IconProps) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <path
-        d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"
+        d="M3 10.5 12 3l9 7.5M5 9.5V20h14V9.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
+        strokeLinejoin="round"
+        fill={active ? 'currentColor' : 'none'}
+        fillOpacity={active ? 0.12 : 1}
       />
     </svg>
   )
