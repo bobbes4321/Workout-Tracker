@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../lib/db'
+import { clearAllData, db } from '../lib/db'
 import type { Exercise } from '../lib/types'
 import { exportData, importData } from '../lib/backup'
 import { Button, Card, PageHeader } from '../components/ui'
@@ -81,6 +81,26 @@ export function SettingsPage() {
           choose <span className="text-text">“Add to Home Screen”</span>. It
           will run fullscreen and work offline.
         </p>
+      </Card>
+
+      <Card className="mt-4 border-danger/30">
+        <h2 className="mb-1 font-bold text-danger">Danger zone</h2>
+        <p className="mb-3 text-sm text-muted">
+          Permanently delete every session, goal, and exercise and start from a
+          clean slate. Export a backup first if you might want it back.
+        </p>
+        <Button
+          variant="danger"
+          className="w-full border border-danger/40"
+          onClick={async () => {
+            if (!confirm('Delete ALL your data? This cannot be undone.')) return
+            if (!confirm('Last chance — really clear everything?')) return
+            await clearAllData()
+            setMsg('All data cleared. Starter exercises restored.')
+          }}
+        >
+          Clear all data
+        </Button>
       </Card>
     </div>
   )

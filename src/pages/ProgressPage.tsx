@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Area,
+  AreaChart,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -15,19 +16,19 @@ import {
   ZAxis,
 } from 'recharts'
 import { db } from '../lib/db'
+import type { Exercise, Goal, WorkoutSet } from '../lib/types'
 import {
   METRIC_LABEL,
   buildSeries,
   buildSetPoints,
   computePRs,
   type ProgressMetric,
+  type ProgressPoint,
 } from '../lib/calc'
 import { shortDateMs, prettyDateMs } from '../lib/date'
-import { Button, Card, EmptyState, PageHeader, Pill, Stat } from '../components/ui'
-import { ExercisePicker } from '../components/ExercisePicker'
+import { Card, EmptyState, PageHeader, Pill, Stat } from '../components/ui'
 
 const METRICS: ProgressMetric[] = ['e1rm', 'topWeight', 'volume']
-const LAST_KEY = 'wt:lastExercise'
 const DAY = 86400000
 
 const RANGES = [
@@ -38,61 +39,235 @@ const RANGES = [
 ] as const
 type RangeKey = (typeof RANGES)[number]['key']
 
+interface CardData {
+  ex: Exercise
+  series: ProgressPoint[]
+  current: number
+  best: number
+  trend: number
+  sessions: number
+  lastDate: string
+}
+
 export function ProgressPage() {
-  const [exerciseId, setExerciseId] = useState<number | null>(() => {
-    const v = localStorage.getItem(LAST_KEY)
-    return v ? Number(v) : null
-  })
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  const exercises = useLiveQuery(() => db.exercises.toArray(), [])
+  const sets = useLiveQuery(() => db.sets.toArray(), [])
+  const goals = useLiveQuery(() => db.goals.toArray(), [])
+
+  const exMap = useMemo(() => {
+    const m = new Map<number, Exercise>()
+    for (const e of exercises ?? []) m.set(e.id!, e)
+    return m
+  }, [exercises])
+
+  const byExercise = useMemo(() => {
+    const m = new Map<number, WorkoutSet[]>()
+    for (const s of sets ?? []) {
+      const arr = m.get(s.exerciseId)
+      if (arr) arr.push(s)
+      else m.set(s.exerciseId, [s])
+    }
+    return m
+  }, [sets])
+
+  const cards = useMemo(() => {
+    const arr: CardData[] = []
+    for (const [exId, exSets] of byExercise) {
+      const ex = exMap.get(exId)
+      if (!ex || ex.archived === 1) continue
+      const series = buildSeries(exSets, 'e1rm')
+      if (series.length === 0) continue
+      const current = series[series.length - 1].value
+      const first = series[0].value
+      arr.push({
+        ex,
+        series,
+        current,
+        best: Math.max(...series.map((s) => s.value)),
+        trend: first > 0 ? ((current - first) / first) * 100 : 0,
+        sessions: series.length,
+        lastDate: exSets.reduce((m, s) => (s.date > m ? s.date : m), exSets[0].date),
+      })
+    }
+    return arr.sort((a, b) => b.lastDate.localeCompare(a.lastDate))
+  }, [byExercise, exMap])
+
+  if (sets === undefined) return <PageHeader title="Progress" />
+
+  if (cards.length === 0) {
+    return (
+      <div>
+        <PageHeader title="Progress" subtitle="Trend over time" />
+        <EmptyState
+          title="No data yet"
+          hint="Log a few sessions and your trends will appear here."
+        />
+      </div>
+    )
+  }
+
+  if (selectedId != null && byExercise.has(selectedId)) {
+    return (
+      <Detail
+        exerciseId={selectedId}
+        cards={cards}
+        sets={byExercise.get(selectedId) ?? []}
+        exercise={exMap.get(selectedId)}
+        goals={goals ?? []}
+        onBack={() => setSelectedId(null)}
+        onPick={setSelectedId}
+      />
+    )
+  }
+
+  return <Overview cards={cards} onPick={setSelectedId} />
+}
+
+/* ----------------------------- Overview ----------------------------- */
+
+function Overview({
+  cards,
+  onPick,
+}: {
+  cards: CardData[]
+  onPick: (id: number) => void
+}) {
+  const [cat, setCat] = useState('All')
+  const categories = useMemo(() => {
+    const set = new Set(cards.map((c) => c.ex.category))
+    return ['All', ...[...set].sort()]
+  }, [cards])
+  const shown = cat === 'All' ? cards : cards.filter((c) => c.ex.category === cat)
+
+  return (
+    <div>
+      <PageHeader title="Progress" subtitle="Est. 1RM across every exercise" />
+
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+        {categories.map((c) => (
+          <Pill key={c} active={cat === c} onClick={() => setCat(c)}>
+            {c}
+          </Pill>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {shown.map((c) => (
+          <MiniCard key={c.ex.id} card={c} onClick={() => onPick(c.ex.id!)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniCard({ card, onClick }: { card: CardData; onClick: () => void }) {
+  const { ex, series, current, best, trend, sessions } = card
+  const up = trend >= 0
+  return (
+    <button
+      onClick={onClick}
+      className="flex flex-col rounded-2xl border border-border bg-surface p-3 text-left transition-transform active:scale-[0.98]"
+    >
+      <p className="truncate text-sm font-semibold">{ex.name}</p>
+      <div className="mt-0.5 flex items-baseline gap-1">
+        <span className="text-xl font-extrabold tabular-nums">{current}</span>
+        <span className="text-xs text-muted">{ex.unit}</span>
+        {series.length >= 2 && (
+          <span
+            className={`ml-auto text-xs font-bold ${up ? 'text-accent' : 'text-danger'}`}
+          >
+            {up ? '▲' : '▼'}
+            {Math.abs(trend).toFixed(0)}%
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5">
+        <MiniSparkline series={series} gradId={`mini-${ex.id}`} />
+      </div>
+      <p className="mt-1 text-[0.65rem] text-muted">
+        best {best} · {sessions} session{sessions === 1 ? '' : 's'}
+      </p>
+    </button>
+  )
+}
+
+function MiniSparkline({
+  series,
+  gradId,
+}: {
+  series: ProgressPoint[]
+  gradId: string
+}) {
+  const uid = useId().replace(/:/g, '')
+  const id = `${gradId}-${uid}`
+  return (
+    <div className="h-12 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={series} margin={{ top: 3, right: 2, left: 2, bottom: 0 }}>
+          <defs>
+            <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#c2f53c" stopOpacity={0.4} />
+              <stop offset="100%" stopColor="#c2f53c" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <YAxis hide domain={['dataMin', 'dataMax']} />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke="#c2f53c"
+            strokeWidth={2}
+            fill={`url(#${id})`}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/* ------------------------------ Detail ------------------------------ */
+
+function Detail({
+  exerciseId,
+  cards,
+  sets,
+  exercise,
+  goals,
+  onBack,
+  onPick,
+}: {
+  exerciseId: number
+  cards: CardData[]
+  sets: WorkoutSet[]
+  exercise?: Exercise
+  goals: Goal[]
+  onBack: () => void
+  onPick: (id: number) => void
+}) {
   const [metric, setMetric] = useState<ProgressMetric>('e1rm')
   const [range, setRange] = useState<RangeKey>('all')
-  const [pickerOpen, setPickerOpen] = useState(false)
 
-  const exercise = useLiveQuery(
-    () => (exerciseId ? db.exercises.get(exerciseId) : undefined),
-    [exerciseId],
-  )
-  const allSets = useLiveQuery(
-    () =>
-      exerciseId
-        ? db.sets.where('exerciseId').equals(exerciseId).toArray()
-        : [],
-    [exerciseId],
-  )
-  const goals = useLiveQuery(
-    () =>
-      exerciseId
-        ? db.goals.where('exerciseId').equals(exerciseId).toArray()
-        : [],
-    [exerciseId],
-  )
-
-  // Range cutoff anchored to the most recent session.
   const cutoff = useMemo(() => {
     const days = RANGES.find((r) => r.key === range)!.days
-    if (!Number.isFinite(days) || !allSets?.length) return -Infinity
-    const lastT = Math.max(...allSets.map((s) => Date.parse(`${s.date}T12:00:00`)))
+    if (!Number.isFinite(days) || sets.length === 0) return -Infinity
+    const lastT = Math.max(...sets.map((s) => Date.parse(`${s.date}T12:00:00`)))
     return lastT - days * DAY
-  }, [range, allSets])
+  }, [range, sets])
 
   const rangedSets = useMemo(
-    () =>
-      (allSets ?? []).filter(
-        (s) => Date.parse(`${s.date}T12:00:00`) >= cutoff,
-      ),
-    [allSets, cutoff],
+    () => sets.filter((s) => Date.parse(`${s.date}T12:00:00`) >= cutoff),
+    [sets, cutoff],
   )
 
-  const series = useMemo(
-    () => buildSeries(rangedSets, metric),
-    [rangedSets, metric],
-  )
+  const series = useMemo(() => buildSeries(rangedSets, metric), [rangedSets, metric])
   const setPoints = useMemo(
     () => (metric === 'volume' ? [] : buildSetPoints(rangedSets, metric)),
     [rangedSets, metric],
   )
-  const prsAll = useMemo(() => computePRs(allSets ?? []), [allSets])
-
-  // Highlight the best point currently visible.
+  const prsAll = useMemo(() => computePRs(sets), [sets])
   const peak = useMemo(() => {
     if (series.length === 0) return null
     return series.reduce((m, p) => (p.value > m.value ? p : m), series[0])
@@ -100,57 +275,60 @@ export function ProgressPage() {
 
   const goal = useMemo(() => {
     if (metric === 'volume') return undefined
-    return (goals ?? []).find(
+    return goals.find(
       (g) =>
-        (metric === 'e1rm' && g.metric === 'e1rm') ||
-        (metric === 'topWeight' && g.metric === 'weight'),
+        g.exerciseId === exerciseId &&
+        ((metric === 'e1rm' && g.metric === 'e1rm') ||
+          (metric === 'topWeight' && g.metric === 'weight')),
     )
-  }, [goals, metric])
-
-  function pick(id: number) {
-    setExerciseId(id)
-    localStorage.setItem(LAST_KEY, String(id))
-    setPickerOpen(false)
-  }
+  }, [goals, metric, exerciseId])
 
   const unit = exercise?.unit ?? 'kg'
   const hasData = series.length > 0
 
   return (
     <div>
-      <PageHeader title="Progress" subtitle="Trend over time" />
-
       <button
-        onClick={() => setPickerOpen(true)}
-        className="mb-4 flex w-full items-center justify-between rounded-2xl border border-border bg-surface px-4 py-3 text-left active:bg-surface-2"
+        onClick={onBack}
+        className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-muted active:text-text"
       >
-        <span className="truncate font-semibold">
-          {exercise?.name ?? 'Choose an exercise'}
-        </span>
-        <span className="shrink-0 text-sm text-muted">Change ›</span>
+        ‹ All exercises
       </button>
+      <h1 className="mb-3 text-2xl font-extrabold tracking-tight">
+        {exercise?.name}
+        <span className="ml-2 align-middle text-xs font-medium text-muted">
+          {exercise?.category}
+        </span>
+      </h1>
 
-      {!exerciseId ? (
-        <EmptyState
-          title="Pick an exercise"
-          hint="See how your estimated 1RM is trending."
-          action={<Button onClick={() => setPickerOpen(true)}>Choose</Button>}
-        />
-      ) : !hasData ? (
+      {/* Quick exercise switcher */}
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+        {cards.map((c) => (
+          <Pill
+            key={c.ex.id}
+            active={c.ex.id === exerciseId}
+            onClick={() => onPick(c.ex.id!)}
+          >
+            {c.ex.name}
+          </Pill>
+        ))}
+      </div>
+
+      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+        {METRICS.map((m) => (
+          <Pill key={m} active={metric === m} onClick={() => setMetric(m)}>
+            {METRIC_LABEL[m]}
+          </Pill>
+        ))}
+      </div>
+
+      {!hasData ? (
         <EmptyState
           title="No data in this range"
-          hint={`Log some sets of ${exercise?.name ?? 'this exercise'}, or widen the date range.`}
+          hint="Widen the date range to see more."
         />
       ) : (
         <>
-          <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-            {METRICS.map((m) => (
-              <Pill key={m} active={metric === m} onClick={() => setMetric(m)}>
-                {METRIC_LABEL[m]}
-              </Pill>
-            ))}
-          </div>
-
           <Card className="mb-3 overflow-hidden">
             <div className="mb-3 flex items-start justify-between">
               <div>
@@ -165,12 +343,7 @@ export function ProgressPage() {
               {series.length >= 2 && <TrendBadge series={series} />}
             </div>
 
-            <Chart
-              series={series}
-              setPoints={setPoints}
-              goal={goal?.target}
-              peak={peak}
-            />
+            <Chart series={series} setPoints={setPoints} goal={goal?.target} peak={peak} />
 
             <div className="mt-2 flex justify-end gap-1.5">
               {RANGES.map((r) => (
@@ -208,26 +381,20 @@ export function ProgressPage() {
               unit={unit}
               sub={prsAll.bestWeight ? `×${prsAll.bestWeight.reps}` : undefined}
             />
+            <Stat label="Best e1RM" value={prsAll.bestE1rm?.value ?? '–'} unit={unit} />
             <Stat
-              label="Best e1RM"
-              value={prsAll.bestE1rm?.value ?? '–'}
-              unit={unit}
+              label="Sessions"
+              value={series.length}
+              sub={`in ${RANGES.find((r) => r.key === range)!.label}`}
             />
-            <Stat label="Sessions" value={series.length} sub={`in ${RANGES.find((r) => r.key === range)!.label}`} />
           </div>
         </>
-      )}
-
-      {pickerOpen && (
-        <ExercisePicker
-          onClose={() => setPickerOpen(false)}
-          onPick={pick}
-          allowCreate={false}
-        />
       )}
     </div>
   )
 }
+
+/* --------------------------- Shared chart --------------------------- */
 
 function TrendBadge({ series }: { series: { value: number }[] }) {
   const first = series[0].value
@@ -271,12 +438,13 @@ function GoalStrip({
           style={{ width: `${pct}%` }}
         />
       </div>
-      {!reached && (
+      {!reached ? (
         <p className="mt-1.5 text-xs text-muted">
           {Math.round((target - current) * 10) / 10} {unit} to go
         </p>
+      ) : (
+        <p className="mt-1.5 text-xs font-medium text-accent">Reached 🎉</p>
       )}
-      {reached && <p className="mt-1.5 text-xs font-medium text-accent">Reached 🎉</p>}
     </Card>
   )
 }
@@ -314,10 +482,7 @@ function Chart({
   return (
     <div className="-mx-1 h-60 w-[calc(100%+0.5rem)]">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart
-          data={series}
-          margin={{ top: 12, right: 10, left: -14, bottom: 0 }}
-        >
+        <ComposedChart data={series} margin={{ top: 12, right: 10, left: -14, bottom: 0 }}>
           <defs>
             <linearGradient id="fillAccent" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#c2f53c" stopOpacity={0.35} />
@@ -343,10 +508,7 @@ function Chart({
             axisLine={false}
             width={42}
           />
-          <Tooltip
-            content={<ChartTooltip />}
-            cursor={{ stroke: '#3a3a44', strokeWidth: 1 }}
-          />
+          <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#3a3a44', strokeWidth: 1 }} />
           {goal && (
             <ReferenceLine
               y={goal}

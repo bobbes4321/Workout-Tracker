@@ -106,7 +106,7 @@ export function LogPage() {
   )
 }
 
-const STEP_OPTIONS = [1, 2.5, 5]
+const STEP_OPTIONS = [1, 2, 5]
 
 function ExerciseLogCard({
   exercise,
@@ -161,7 +161,7 @@ function ExerciseLogCard({
   }, [refSet])
 
   if (!exercise) return null
-  const step = exercise.weightStep ?? 2.5
+  const step = exercise.weightStep ?? 1
   const unit = exercise.unit
 
   async function addSet(w: number, r: number) {

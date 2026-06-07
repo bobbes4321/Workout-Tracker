@@ -36,6 +36,14 @@ const STARTER_EXERCISES: Array<Pick<Exercise, 'name' | 'category'>> = [
   { name: 'Ab Cable Crunches', category: 'Core' },
 ]
 
+/** Permanently delete all data and re-seed the starter exercise list. */
+export async function clearAllData() {
+  await db.transaction('rw', db.exercises, db.sets, db.goals, async () => {
+    await Promise.all([db.sets.clear(), db.goals.clear(), db.exercises.clear()])
+  })
+  await seedIfEmpty()
+}
+
 /** Seed a fresh database with a sensible starter exercise list (runs once). */
 export async function seedIfEmpty() {
   const count = await db.exercises.count()
