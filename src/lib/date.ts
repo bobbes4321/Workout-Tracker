@@ -24,6 +24,22 @@ export function shortDate(iso: string): string {
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
+export function shortDateMs(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  })
+}
+
+export function prettyDateMs(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 export function relativeDay(iso: string): string {
   const today = isoDate()
   if (iso === today) return 'Today'

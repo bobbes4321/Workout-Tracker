@@ -8,6 +8,10 @@ export interface Exercise {
   createdAt: number
   /** Soft-archive instead of deleting so historical sets keep their name. */
   archived?: 0 | 1
+  /** Free-text setup notes — safety-bar heights, seat/pin positions, stance, etc. */
+  setup?: string
+  /** Preferred weight increment for the +/- steppers (default 2.5). */
+  weightStep?: number
 }
 
 export interface WorkoutSet {
