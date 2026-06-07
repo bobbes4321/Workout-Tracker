@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Local demo-data helpers (not part of the app)
+generate-demo-data.mjs
+workout-backup-demo.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

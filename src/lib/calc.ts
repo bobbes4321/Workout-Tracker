@@ -14,6 +14,11 @@ export function round1(n: number): number {
   return Math.round(n * 10) / 10
 }
 
+/** Midday timestamp for a YYYY-MM-DD string (stable x-value for charts). */
+export function dateToTs(date: string): number {
+  return Date.parse(`${date}T12:00:00`)
+}
+
 export interface SetStats {
   e1rm: number
 }
@@ -28,6 +33,21 @@ export const METRIC_LABEL: Record<ProgressMetric, string> = {
   e1rm: 'Est. 1RM',
   topWeight: 'Top weight',
   volume: 'Total volume',
+}
+
+/** The value of a single set under a given metric (volume is per-set load). */
+export function setValue(
+  s: Pick<WorkoutSet, 'weight' | 'reps'>,
+  metric: ProgressMetric,
+): number {
+  switch (metric) {
+    case 'e1rm':
+      return round1(e1rm(s.weight, s.reps))
+    case 'topWeight':
+      return s.weight
+    case 'volume':
+      return s.weight * s.reps
+  }
 }
 
 /** Aggregate the sets of a single session (one date) into one data point. */
@@ -48,6 +68,7 @@ export function metricForSession(
 
 export interface ProgressPoint {
   date: string
+  t: number
   value: number
 }
 
@@ -66,8 +87,24 @@ export function buildSeries(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, daySets]) => ({
       date,
+      t: dateToTs(date),
       value: metricForSession(daySets, metric),
     }))
+}
+
+export interface SetPoint {
+  t: number
+  value: number
+}
+
+/** Every individual set as a scatter point (for the faint cloud behind the line). */
+export function buildSetPoints(
+  sets: WorkoutSet[],
+  metric: ProgressMetric,
+): SetPoint[] {
+  return sets
+    .map((s) => ({ t: dateToTs(s.date), value: setValue(s, metric) }))
+    .sort((a, b) => a.t - b.t)
 }
 
 export interface PRs {
@@ -95,4 +132,27 @@ export function computePRs(sets: WorkoutSet[]): PRs {
     bestE1rm: { set: bestE1rm.set, value: round1(bestE1rm.value) },
     totalSets: sets.length,
   }
+}
+
+export interface PRFlags {
+  weightPR: boolean
+  e1rmPR: boolean
+}
+
+/**
+ * Walk sets in chronological order and flag the ones that set a new best
+ * (weight or estimated-1RM) at the moment they were logged.
+ */
+export function markPRs(sets: WorkoutSet[]): Map<number, PRFlags> {
+  const sorted = [...sets].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+  let bestW = 0
+  let bestE = 0
+  const map = new Map<number, PRFlags>()
+  for (const s of sorted) {
+    const v = e1rm(s.weight, s.reps)
+    map.set(s.id!, { weightPR: s.weight > bestW, e1rmPR: v > bestE + 1e-9 })
+    if (s.weight > bestW) bestW = s.weight
+    if (v > bestE) bestE = v
+  }
+  return map
 }

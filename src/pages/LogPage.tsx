@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import type { Exercise, WorkoutSet } from '../lib/types'
-import { setStats } from '../lib/calc'
+import { markPRs, setStats } from '../lib/calc'
 import { isoDate, relativeDay } from '../lib/date'
-import { Button, Card, EmptyState, PageHeader } from '../components/ui'
+import { Button, EmptyState, PageHeader } from '../components/ui'
 import { ExercisePicker } from '../components/ExercisePicker'
+import { Stepper } from '../components/Stepper'
 
 export function LogPage() {
   const [date, setDate] = useState(isoDate())
@@ -24,7 +25,6 @@ export function LogPage() {
     [date],
   )
 
-  // Exercise order in this session: those with sets (by first logged), then pending.
   const sessionExerciseIds = useMemo(() => {
     const order: number[] = []
     const seen = new Set<number>()
@@ -47,14 +47,17 @@ export function LogPage() {
   }, [daySets, pendingIds])
 
   const totalSets = daySets?.length ?? 0
+  const volume = (daySets ?? []).reduce((s, x) => s + x.weight * x.reps, 0)
 
   return (
     <div>
       <PageHeader
         title="Log"
-        subtitle={`${relativeDay(date)} · ${totalSets} set${totalSets === 1 ? '' : 's'}`}
+        subtitle={`${relativeDay(date)} · ${totalSets} set${totalSets === 1 ? '' : 's'}${
+          volume > 0 ? ` · ${Math.round(volume).toLocaleString()} kg` : ''
+        }`}
         right={
-          <label className="relative cursor-pointer rounded-xl bg-surface-2 px-3 py-2 text-sm font-medium text-muted hover:text-text">
+          <label className="relative cursor-pointer rounded-xl bg-surface-2 px-3 py-2 text-sm font-medium text-muted active:bg-border">
             {relativeDay(date) === 'Today' ? '📅 Today' : '📅 ' + date}
             <input
               type="date"
@@ -78,12 +81,7 @@ export function LogPage() {
       ) : (
         <div className="space-y-4">
           {sessionExerciseIds.map((id) => (
-            <ExerciseLogCard
-              key={id}
-              exercise={exMap.get(id)}
-              date={date}
-              sets={(daySets ?? []).filter((s) => s.exerciseId === id)}
-            />
+            <ExerciseLogCard key={id} exercise={exMap.get(id)} date={date} />
           ))}
           <Button
             variant="surface"
@@ -108,24 +106,65 @@ export function LogPage() {
   )
 }
 
+const STEP_OPTIONS = [1, 2.5, 5]
+
 function ExerciseLogCard({
   exercise,
   date,
-  sets,
 }: {
   exercise?: Exercise
   date: string
-  sets: WorkoutSet[]
 }) {
-  const lastSet = sets[sets.length - 1]
+  const allSets = useLiveQuery(
+    () =>
+      exercise?.id
+        ? db.sets.where('exerciseId').equals(exercise.id).toArray()
+        : [],
+    [exercise?.id],
+  )
+
   const [weight, setWeight] = useState('')
   const [reps, setReps] = useState('')
+  const touched = useRef(false)
+  const [showSetup, setShowSetup] = useState(false)
+  const [editingSetup, setEditingSetup] = useState(false)
+  const [setupDraft, setSetupDraft] = useState('')
+
+  const today = useMemo(
+    () =>
+      (allSets ?? [])
+        .filter((s) => s.date === date)
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+    [allSets, date],
+  )
+
+  const prev = useMemo(() => {
+    const past = (allSets ?? []).filter((s) => s.date < date)
+    if (past.length === 0) return null
+    const lastDate = past.reduce((m, s) => (s.date > m ? s.date : m), past[0].date)
+    return {
+      date: lastDate,
+      sets: past
+        .filter((s) => s.date === lastDate)
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+    }
+  }, [allSets, date])
+
+  const prMap = useMemo(() => markPRs(allSets ?? []), [allSets])
+
+  // Smart prefill: start the inputs at the most recent set's numbers.
+  const refSet = today[today.length - 1] ?? prev?.sets[prev.sets.length - 1]
+  useEffect(() => {
+    if (touched.current || !refSet) return
+    setWeight(String(refSet.weight))
+    setReps(String(refSet.reps))
+  }, [refSet])
 
   if (!exercise) return null
+  const step = exercise.weightStep ?? 2.5
+  const unit = exercise.unit
 
-  async function addSet() {
-    const w = parseFloat(weight)
-    const r = parseInt(reps, 10)
+  async function addSet(w: number, r: number) {
     if (!Number.isFinite(w) || !Number.isInteger(r) || w <= 0 || r <= 0) return
     await db.sets.add({
       exerciseId: exercise!.id!,
@@ -134,52 +173,167 @@ function ExerciseLogCard({
       reps: r,
       createdAt: Date.now(),
     })
-    setReps('')
-    // Keep weight — most people repeat the same weight across sets.
   }
 
-  const placeholderW = lastSet ? String(lastSet.weight) : '0'
-  const placeholderR = lastSet ? String(lastSet.reps) : '0'
+  function cycleStep() {
+    const idx = STEP_OPTIONS.indexOf(step)
+    const next = STEP_OPTIONS[(idx + 1) % STEP_OPTIONS.length]
+    db.exercises.update(exercise!.id!, { weightStep: next })
+  }
+
+  async function saveSetup() {
+    await db.exercises.update(exercise!.id!, { setup: setupDraft.trim() })
+    setEditingSetup(false)
+    if (!setupDraft.trim()) setShowSetup(false)
+  }
 
   return (
-    <Card>
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-bold">{exercise.name}</h2>
-        <span className="text-xs text-muted">{exercise.category}</span>
+    <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="truncate font-bold">{exercise.name}</h2>
+          <button
+            onClick={() => {
+              setShowSetup((v) => !v)
+              setSetupDraft(exercise.setup ?? '')
+              setEditingSetup(false)
+            }}
+            className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted active:text-text"
+          >
+            <span className="text-accent">ⓘ</span>
+            {exercise.setup ? 'Setup' : 'Add setup'}
+          </button>
+        </div>
+        <span className="shrink-0 rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted">
+          {exercise.category}
+        </span>
       </div>
 
-      {sets.length > 0 && (
-        <div className="mb-3 space-y-1.5">
-          {sets.map((s, i) => (
-            <SetRow key={s.id} index={i + 1} set={s} unit={exercise.unit} />
+      {showSetup && (
+        <div className="mt-3 rounded-xl border border-border/70 bg-surface-2 p-3">
+          {editingSetup ? (
+            <div className="space-y-2">
+              <textarea
+                autoFocus
+                value={setupDraft}
+                onChange={(e) => setSetupDraft(e.target.value)}
+                rows={2}
+                placeholder="e.g. Safety pins: hole 6 · Seat: 3 · Stance: shoulder-width"
+                className="w-full resize-none rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+              <div className="flex gap-2">
+                <Button onClick={saveSetup} className="px-3 py-1.5 text-xs">
+                  Save
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setEditingSetup(false)}
+                  className="px-3 py-1.5 text-xs"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start justify-between gap-2">
+              <p className="whitespace-pre-wrap text-sm text-muted">
+                {exercise.setup || 'No setup notes yet.'}
+              </p>
+              <button
+                onClick={() => {
+                  setSetupDraft(exercise.setup ?? '')
+                  setEditingSetup(true)
+                }}
+                className="shrink-0 text-xs text-accent active:opacity-70"
+              >
+                Edit
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {prev && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+          <span className="font-medium text-text/80">
+            Last ({relativeDay(prev.date)}):
+          </span>
+          {prev.sets.map((s) => (
+            <span key={s.id} className="tabular-nums">
+              {s.weight}×{s.reps}
+            </span>
           ))}
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <Field
-          label={`Weight (${exercise.unit})`}
-          value={weight}
-          onChange={setWeight}
-          placeholder={placeholderW}
-          inputMode="decimal"
-        />
-        <Field
-          label="Reps"
-          value={reps}
-          onChange={setReps}
-          placeholder={placeholderR}
-          inputMode="numeric"
-        />
+      {today.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {today.map((s, i) => (
+            <SetRow
+              key={s.id}
+              index={i + 1}
+              set={s}
+              unit={unit}
+              isPR={prMap.get(s.id!)?.e1rmPR || prMap.get(s.id!)?.weightPR}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-medium text-muted">
+              Weight ({unit})
+            </span>
+            <button
+              onClick={cycleStep}
+              className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[0.65rem] font-semibold text-muted active:text-text"
+            >
+              ±{step}
+            </button>
+          </div>
+          <Stepper
+            value={weight}
+            onChange={(v) => {
+              touched.current = true
+              setWeight(v)
+            }}
+            step={step}
+          />
+        </div>
+        <div>
+          <span className="mb-1 block text-xs font-medium text-muted">Reps</span>
+          <Stepper
+            value={reps}
+            onChange={(v) => {
+              touched.current = true
+              setReps(v)
+            }}
+            step={1}
+            inputMode="numeric"
+          />
+        </div>
+      </div>
+
+      <div className="mt-2 flex gap-2">
         <Button
-          onClick={addSet}
-          className="mb-px h-[46px] px-5"
+          className="flex-1"
           disabled={!weight || !reps}
+          onClick={() => addSet(parseFloat(weight), parseInt(reps, 10))}
         >
-          Add
+          Add set
+        </Button>
+        <Button
+          variant="surface"
+          disabled={!refSet}
+          onClick={() => refSet && addSet(refSet.weight, refSet.reps)}
+          className="px-4"
+        >
+          ⟳ Repeat
         </Button>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -187,14 +341,20 @@ function SetRow({
   index,
   set,
   unit,
+  isPR,
 }: {
   index: number
   set: WorkoutSet
   unit: string
+  isPR?: boolean
 }) {
   const { e1rm } = setStats(set)
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2 text-sm">
+    <div
+      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
+        isPR ? 'bg-accent/10 ring-1 ring-accent/30' : 'bg-surface-2'
+      }`}
+    >
       <span className="w-5 text-xs font-semibold text-muted">{index}</span>
       <span className="font-semibold tabular-nums">
         {set.weight}
@@ -202,42 +362,19 @@ function SetRow({
       </span>
       <span className="text-muted">×</span>
       <span className="font-semibold tabular-nums">{set.reps}</span>
+      {isPR && (
+        <span className="rounded-full bg-accent px-1.5 py-0.5 text-[0.6rem] font-bold text-black">
+          🏆 PR
+        </span>
+      )}
       <span className="ml-auto text-xs text-muted">e1RM {e1rm}</span>
       <button
         onClick={() => db.sets.delete(set.id!)}
-        className="text-muted hover:text-danger"
+        className="text-muted active:text-danger"
         aria-label="Delete set"
       >
         ✕
       </button>
     </div>
-  )
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  inputMode,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-  inputMode: 'decimal' | 'numeric'
-}) {
-  return (
-    <label className="flex-1">
-      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        inputMode={inputMode}
-        type="text"
-        className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-base tabular-nums outline-none focus:border-accent"
-      />
-    </label>
   )
 }

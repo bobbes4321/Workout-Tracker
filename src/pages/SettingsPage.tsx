@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
+import type { Exercise } from '../lib/types'
 import { exportData, importData } from '../lib/backup'
 import { Button, Card, PageHeader } from '../components/ui'
 
@@ -101,49 +102,109 @@ function ExerciseManager() {
   )
   const active = (exercises ?? []).filter((e) => e.archived !== 1)
 
-  async function rename(id: number, currentName: string) {
-    const name = prompt('Rename exercise', currentName)?.trim()
-    if (name && name !== currentName) await db.exercises.update(id, { name })
-  }
-
-  async function archive(id: number, name: string) {
-    if (
-      confirm(
-        `Hide “${name}”? It stays out of pickers but your logged history is kept.`,
-      )
-    ) {
-      await db.exercises.update(id, { archived: 1 })
-    }
-  }
-
   return (
     <Card>
-      <h2 className="mb-3 font-bold">Exercises</h2>
+      <h2 className="mb-1 font-bold">Exercises</h2>
+      <p className="mb-2 text-xs text-muted">
+        Add setup notes (safety-bar heights, seat/pin positions) — they show on
+        the Log screen.
+      </p>
       <div className="divide-y divide-border/60">
         {active.map((e) => (
-          <div key={e.id} className="flex items-center gap-2 py-2.5">
-            <div className="flex-1">
-              <p className="text-sm font-medium">{e.name}</p>
-              <p className="text-xs text-muted">{e.category}</p>
-            </div>
-            <button
-              onClick={() => rename(e.id!, e.name)}
-              className="rounded-lg px-2 py-1 text-xs text-muted hover:text-text"
-            >
-              Rename
-            </button>
-            <button
-              onClick={() => archive(e.id!, e.name)}
-              className="rounded-lg px-2 py-1 text-xs text-muted hover:text-danger"
-            >
-              Hide
-            </button>
-          </div>
+          <ExerciseRow key={e.id} exercise={e} />
         ))}
         {active.length === 0 && (
           <p className="py-3 text-sm text-muted">No exercises.</p>
         )}
       </div>
     </Card>
+  )
+}
+
+function ExerciseRow({ exercise: e }: { exercise: Exercise }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(e.setup ?? '')
+
+  async function rename() {
+    const name = prompt('Rename exercise', e.name)?.trim()
+    if (name && name !== e.name) await db.exercises.update(e.id!, { name })
+  }
+
+  async function archive() {
+    if (
+      confirm(
+        `Hide “${e.name}”? It stays out of pickers but your logged history is kept.`,
+      )
+    ) {
+      await db.exercises.update(e.id!, { archived: 1 })
+    }
+  }
+
+  async function saveSetup() {
+    await db.exercises.update(e.id!, { setup: draft.trim() })
+    setEditing(false)
+  }
+
+  return (
+    <div className="py-2.5">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{e.name}</p>
+          <p className="text-xs text-muted">{e.category}</p>
+        </div>
+        <button
+          onClick={() => {
+            setDraft(e.setup ?? '')
+            setEditing((v) => !v)
+          }}
+          className="rounded-lg px-2 py-1 text-xs text-muted active:text-text"
+        >
+          {e.setup ? 'Setup ✎' : 'Setup +'}
+        </button>
+        <button
+          onClick={rename}
+          className="rounded-lg px-2 py-1 text-xs text-muted active:text-text"
+        >
+          Rename
+        </button>
+        <button
+          onClick={archive}
+          className="rounded-lg px-2 py-1 text-xs text-muted active:text-danger"
+        >
+          Hide
+        </button>
+      </div>
+
+      {!editing && e.setup && (
+        <p className="mt-1 whitespace-pre-wrap rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
+          {e.setup}
+        </p>
+      )}
+
+      {editing && (
+        <div className="mt-2 space-y-2">
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(ev) => setDraft(ev.target.value)}
+            rows={2}
+            placeholder="e.g. Safety pins: hole 6 · Seat: 3"
+            className="w-full resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          <div className="flex gap-2">
+            <Button onClick={saveSetup} className="px-3 py-1.5 text-xs">
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setEditing(false)}
+              className="px-3 py-1.5 text-xs"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
