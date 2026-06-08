@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { AnimatePresence, motion } from 'motion/react'
 import { db } from '../lib/db'
-import type { Exercise, WorkoutSet } from '../lib/types'
-import { markPRs, setStats } from '../lib/calc'
+import type { GoalMetric, Exercise, WorkoutSet } from '../lib/types'
+import { e1rm, markPRs, setStats } from '../lib/calc'
 import { isoDate, relativeDay } from '../lib/date'
+import { celebrateGoal, celebratePR } from '../lib/celebrate'
 import { Button, EmptyState, PageHeader } from '../components/ui'
+import { useDialog } from '../components/Dialog'
 import { ExercisePicker } from '../components/ExercisePicker'
 import { Stepper } from '../components/Stepper'
 import { ActivityCard } from '../components/ActivityCard'
@@ -120,6 +123,23 @@ export function LogPage() {
 
 const STEP_OPTIONS = [1, 2, 5]
 
+/** Best value of a goal metric across prior sets plus the one just added. */
+function bestForMetric(
+  metric: GoalMetric,
+  prior: WorkoutSet[],
+  w: number,
+  r: number,
+): number {
+  switch (metric) {
+    case 'e1rm':
+      return Math.max(e1rm(w, r), ...prior.map((s) => e1rm(s.weight, s.reps)))
+    case 'weight':
+      return Math.max(w, ...prior.map((s) => s.weight))
+    case 'reps':
+      return Math.max(r, ...prior.map((s) => s.reps))
+  }
+}
+
 function ExerciseLogCard({
   exercise,
   date,
@@ -143,6 +163,7 @@ function ExerciseLogCard({
   const [showSetup, setShowSetup] = useState(false)
   const [editingSetup, setEditingSetup] = useState(false)
   const [setupDraft, setSetupDraft] = useState('')
+  const { confirm } = useDialog()
 
   const today = useMemo(
     () =>
@@ -180,13 +201,27 @@ function ExerciseLogCard({
 
   async function addSet(w: number, r: number) {
     if (!Number.isFinite(w) || !Number.isInteger(r) || w <= 0 || r <= 0) return
-    await db.sets.add({
-      exerciseId: exercise!.id!,
-      date,
-      weight: w,
-      reps: r,
-      createdAt: Date.now(),
-    })
+    const exId = exercise!.id!
+    const prior = allSets ?? []
+    const prevBestE = prior.reduce((m, s) => Math.max(m, e1rm(s.weight, s.reps)), 0)
+    const prevBestW = prior.reduce((m, s) => Math.max(m, s.weight), 0)
+
+    await db.sets.add({ exerciseId: exId, date, weight: w, reps: r, createdAt: Date.now() })
+
+    // Celebrate only a genuine improvement (not the first-ever baseline set).
+    const isPR =
+      prior.length > 0 && (e1rm(w, r) > prevBestE + 1e-9 || w > prevBestW)
+    if (isPR) celebratePR()
+
+    // Did this set just complete a not-yet-achieved goal for this exercise?
+    const goals = await db.goals.where('exerciseId').equals(exId).toArray()
+    for (const g of goals) {
+      if (g.achievedAt) continue
+      if (bestForMetric(g.metric, prior, w, r) >= g.target) {
+        await db.goals.update(g.id!, { achievedAt: Date.now() })
+        celebrateGoal()
+      }
+    }
   }
 
   function cycleStep() {
@@ -204,12 +239,13 @@ function ExerciseLogCard({
   async function removeExercise() {
     if (today.length > 0) {
       const n = today.length
-      if (
-        !confirm(
-          `Remove ${exercise!.name} and its ${n} set${n === 1 ? '' : 's'} from ${relativeDay(date)}?`,
-        )
-      )
-        return
+      const ok = await confirm({
+        title: `Remove ${exercise!.name}?`,
+        message: `This deletes its ${n} set${n === 1 ? '' : 's'} from ${relativeDay(date)}.`,
+        confirmLabel: 'Remove',
+        danger: true,
+      })
+      if (!ok) return
       await db.sets.bulkDelete(today.map((s) => s.id!))
     }
     onRemove(exercise!.id!)
@@ -305,15 +341,24 @@ function ExerciseLogCard({
 
       {today.length > 0 && (
         <div className="mt-3 space-y-1.5">
-          {today.map((s, i) => (
-            <SetRow
-              key={s.id}
-              index={i + 1}
-              set={s}
-              unit={unit}
-              isPR={prMap.get(s.id!)?.e1rmPR || prMap.get(s.id!)?.weightPR}
-            />
-          ))}
+          <AnimatePresence initial={false}>
+            {today.map((s, i) => (
+              <motion.div
+                key={s.id}
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ type: 'spring', damping: 26, stiffness: 360 }}
+              >
+                <SetRow
+                  index={i + 1}
+                  set={s}
+                  unit={unit}
+                  isPR={prMap.get(s.id!)?.e1rmPR || prMap.get(s.id!)?.weightPR}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
 

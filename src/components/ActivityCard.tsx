@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import { ACTIVITY_INFO } from '../lib/types'
 import { Button } from './ui'
+import { useDialog } from './Dialog'
 
 const INFO = ACTIVITY_INFO.bouldering
 
@@ -23,6 +24,7 @@ export function ActivityCard({ date }: { date: string }) {
     [date],
   )
   const [editing, setEditing] = useState(false)
+  const { confirm } = useDialog()
 
   if (existing === undefined) return null // still loading
 
@@ -50,9 +52,13 @@ export function ActivityCard({ date }: { date: string }) {
         </div>
         {existing && !editing && (
           <button
-            onClick={() => {
-              if (confirm('Remove this bouldering session?'))
-                db.activities.delete(existing.id!)
+            onClick={async () => {
+              const ok = await confirm({
+                title: 'Remove bouldering session?',
+                confirmLabel: 'Remove',
+                danger: true,
+              })
+              if (ok) db.activities.delete(existing.id!)
             }}
             className="text-sm text-muted active:text-danger"
             aria-label="Delete bouldering session"

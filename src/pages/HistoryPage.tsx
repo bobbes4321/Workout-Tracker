@@ -6,6 +6,7 @@ import { ACTIVITY_INFO } from '../lib/types'
 import { setStats } from '../lib/calc'
 import { relativeDay } from '../lib/date'
 import { Card, EmptyState, PageHeader } from '../components/ui'
+import { useDialog } from '../components/Dialog'
 
 export function HistoryPage() {
   const sets = useLiveQuery(() => db.sets.toArray(), [])
@@ -70,6 +71,7 @@ function SessionCard({
   exMap: Map<number, Exercise>
 }) {
   const [open, setOpen] = useState(false)
+  const { confirm } = useDialog()
 
   const byExercise = useMemo(() => {
     const m = new Map<number, WorkoutSet[]>()
@@ -152,11 +154,16 @@ function SessionCard({
             </div>
           ))}
           <button
-            onClick={() => {
-              if (confirm(`Delete everything logged on ${relativeDay(date)}?`)) {
-                db.sets.bulkDelete(sets.map((s) => s.id!))
-                db.activities.bulkDelete(activities.map((a) => a.id!))
-              }
+            onClick={async () => {
+              const ok = await confirm({
+                title: `Delete ${relativeDay(date)}?`,
+                message: 'This removes every set and activity logged that day.',
+                confirmLabel: 'Delete',
+                danger: true,
+              })
+              if (!ok) return
+              db.sets.bulkDelete(sets.map((s) => s.id!))
+              db.activities.bulkDelete(activities.map((a) => a.id!))
             }}
             className="text-xs text-muted hover:text-danger"
           >

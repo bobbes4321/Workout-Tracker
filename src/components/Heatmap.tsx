@@ -1,3 +1,4 @@
+import { motion } from 'motion/react'
 import type { HeatCell } from '../lib/stats'
 import { prettyDate } from '../lib/date'
 
@@ -48,14 +49,20 @@ export function Heatmap({ weeks }: { weeks: HeatCell[][] }) {
       <div className="flex gap-[3px]">
         {weeks.map((col, i) => (
           <div key={i} className="flex flex-1 flex-col gap-[3px]">
-            {col.map((c) => (
-              <div
+            {col.map((c, d) => (
+              <motion.div
                 key={c.date}
                 title={cellTitle(c)}
                 className={`aspect-square rounded-[3px] ${
                   c.isFuture ? 'opacity-0' : ''
                 } ${c.isToday ? 'ring-1 ring-text/70' : ''}`}
                 style={{ backgroundColor: cellColor(c) }}
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: c.isFuture ? 0 : 1, scale: 1 }}
+                transition={{
+                  delay: Math.min((i * 7 + d) * 0.004, 0.5),
+                  duration: 0.25,
+                }}
               />
             ))}
           </div>

@@ -8,10 +8,12 @@ import {
 } from '../lib/types'
 import { exportData, importData } from '../lib/backup'
 import { Button, Card, PageHeader } from '../components/ui'
+import { useDialog } from '../components/Dialog'
 
 export function SettingsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const { confirm } = useDialog()
 
   const targetSetting = useLiveQuery(
     () => db.settings.get(SETTING_WEEKLY_TARGET),
@@ -31,12 +33,14 @@ export function SettingsPage() {
   }, [])
 
   async function onImportFile(file: File) {
-    if (
-      !confirm(
-        'Importing replaces ALL current data with the contents of this file. Continue?',
-      )
-    )
-      return
+    const ok = await confirm({
+      title: 'Import backup?',
+      message:
+        'This replaces ALL current data with the contents of this file.',
+      confirmLabel: 'Import',
+      danger: true,
+    })
+    if (!ok) return
     try {
       const r = await importData(file)
       setMsg(`Imported ${r.sets} sets, ${r.exercises} exercises, ${r.goals} goals.`)
@@ -137,8 +141,14 @@ export function SettingsPage() {
           variant="danger"
           className="w-full border border-danger/40"
           onClick={async () => {
-            if (!confirm('Delete ALL your data? This cannot be undone.')) return
-            if (!confirm('Last chance — really clear everything?')) return
+            const ok = await confirm({
+              title: 'Delete all your data?',
+              message:
+                'Every session, goal, activity and exercise will be erased. This cannot be undone — export a backup first if unsure.',
+              confirmLabel: 'Delete everything',
+              danger: true,
+            })
+            if (!ok) return
             await clearAllData()
             setMsg('All data cleared. Starter exercises restored.')
           }}
@@ -188,20 +198,22 @@ function ExerciseManager() {
 function ExerciseRow({ exercise: e }: { exercise: Exercise }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(e.setup ?? '')
+  const { confirm, prompt } = useDialog()
 
   async function rename() {
-    const name = prompt('Rename exercise', e.name)?.trim()
+    const name = (
+      await prompt({ title: 'Rename exercise', label: 'Name', initial: e.name })
+    )?.trim()
     if (name && name !== e.name) await db.exercises.update(e.id!, { name })
   }
 
   async function archive() {
-    if (
-      confirm(
-        `Hide “${e.name}”? It stays out of pickers but your logged history is kept.`,
-      )
-    ) {
-      await db.exercises.update(e.id!, { archived: 1 })
-    }
+    const ok = await confirm({
+      title: `Hide “${e.name}”?`,
+      message: 'It stays out of pickers, but your logged history is kept.',
+      confirmLabel: 'Hide',
+    })
+    if (ok) await db.exercises.update(e.id!, { archived: 1 })
   }
 
   async function saveSetup() {

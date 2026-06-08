@@ -1,3 +1,5 @@
+import { motion } from 'motion/react'
+
 /** Circular progress ring for "training days this week vs target". */
 export function WeeklyRing({
   value,
@@ -29,7 +31,7 @@ export function WeeklyRing({
           stroke="var(--color-surface-2)"
           strokeWidth="7"
         />
-        <circle
+        <motion.circle
           cx="38"
           cy="38"
           r={r}
@@ -38,7 +40,9 @@ export function WeeklyRing({
           strokeWidth="7"
           strokeLinecap="round"
           strokeDasharray={circ}
-          strokeDashoffset={circ * (1 - pct)}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: circ * (1 - pct) }}
+          transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">

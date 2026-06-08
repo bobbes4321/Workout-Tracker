@@ -17,6 +17,9 @@ import {
 } from '../lib/stats'
 import { isoDate, fromNow, relativeDay, startOfWeekIso } from '../lib/date'
 import { Card, EmptyState, PageHeader } from '../components/ui'
+import { useDialog } from '../components/Dialog'
+import { CountUp } from '../components/CountUp'
+import { DashboardSkeleton } from '../components/Skeleton'
 import { WeeklyRing } from '../components/WeeklyRing'
 import { Heatmap } from '../components/Heatmap'
 import { CoverageBars } from '../components/CoverageBars'
@@ -50,6 +53,7 @@ export function DashboardPage() {
     [],
   )
   const target = Number(targetSetting?.value ?? DEFAULT_WEEKLY_TARGET)
+  const { prompt } = useDialog()
 
   const exMap = useMemo(() => {
     const m = new Map<number, Exercise>()
@@ -158,8 +162,13 @@ export function DashboardPage() {
       .slice(0, 3)
   }, [goals, byExercise, exMap])
 
-  function editTarget() {
-    const input = prompt('Sessions per week to aim for:', String(target))
+  async function editTarget() {
+    const input = await prompt({
+      title: 'Weekly target',
+      label: 'Training days per week',
+      initial: String(target),
+      inputMode: 'numeric',
+    })
     if (input == null) return
     const n = parseInt(input, 10)
     if (Number.isFinite(n) && n > 0 && n <= 14)
@@ -183,7 +192,7 @@ export function DashboardPage() {
           trainDays.size > 0 ? (
             <div className="rounded-xl bg-surface-2 px-3 py-2 text-center">
               <p className="text-lg font-bold leading-none tabular-nums">
-                {trainDays.size}
+                <CountUp value={trainDays.size} />
               </p>
               <p className="text-[0.6rem] text-muted">days trained</p>
             </div>
@@ -191,7 +200,9 @@ export function DashboardPage() {
         }
       />
 
-      {loading ? null : !hasData ? (
+      {loading ? (
+        <DashboardSkeleton />
+      ) : !hasData ? (
         <EmptyState
           title="Let's get started"
           hint="Log your first workout and your progress will start showing up here."
@@ -233,7 +244,7 @@ export function DashboardPage() {
               <WeeklyRing value={thisWeek} target={target} onEdit={editTarget} />
               <div className="grid flex-1 grid-cols-3 gap-2">
                 <Fact label="Streak" value={streak} unit={streak === 1 ? 'wk' : 'wks'} />
-                <Fact label="Volume" value={Math.round(weekVolume).toLocaleString()} unit="kg" />
+                <Fact label="Volume" value={Math.round(weekVolume)} unit="kg" />
                 <Fact label="Days left" value={Math.max(0, target - thisWeek)} />
               </div>
             </Card>
@@ -389,13 +400,13 @@ function Fact({
   unit,
 }: {
   label: string
-  value: number | string
+  value: number
   unit?: string
 }) {
   return (
     <div className="rounded-xl bg-surface-2 px-2 py-2 text-center">
       <p className="text-lg font-bold leading-none tabular-nums">
-        {value}
+        <CountUp value={value} />
         {unit && <span className="ml-0.5 text-[0.6rem] font-medium text-muted">{unit}</span>}
       </p>
       <p className="mt-1 text-[0.6rem] text-muted">{label}</p>

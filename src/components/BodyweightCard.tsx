@@ -126,7 +126,9 @@ export function BodyweightCard() {
                   dataKey="value"
                   stroke="none"
                   fill="url(#bw-fill)"
-                  isAnimationActive={false}
+                  isAnimationActive
+                  animationDuration={700}
+                  animationEasing="ease-out"
                 />
                 <Line
                   type="monotone"
@@ -135,7 +137,9 @@ export function BodyweightCard() {
                   strokeWidth={2.5}
                   dot={{ r: 2, fill: '#c2f53c', strokeWidth: 0 }}
                   activeDot={{ r: 5, fill: '#c2f53c', stroke: '#0a0a0b', strokeWidth: 2 }}
-                  isAnimationActive={false}
+                  isAnimationActive
+                  animationDuration={800}
+                  animationEasing="ease-out"
                 />
               </ComposedChart>
             </ResponsiveContainer>

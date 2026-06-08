@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, useLocation, useOutlet } from 'react-router-dom'
+import { AnimatePresence, motion } from 'motion/react'
 
 const navItems = [
   { to: '/', label: 'Home', icon: HomeIcon, end: true },
@@ -9,13 +10,28 @@ const navItems = [
 ]
 
 export function Layout() {
+  const location = useLocation()
+  // Snapshot the matched route element so the *outgoing* page keeps rendering
+  // its own content during the exit (using <Outlet/> here re-renders it with the
+  // new route mid-transition, which causes a one-frame flicker of the new tab).
+  const outlet = useOutlet()
   return (
     <div className="mx-auto flex min-h-full w-full max-w-md flex-col">
       <main
         className="flex-1 px-4 pt-6"
         style={{ paddingBottom: 'calc(5.5rem + env(safe-area-inset-bottom))' }}
       >
-        <Outlet />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {outlet}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       <nav
@@ -29,14 +45,26 @@ export function Layout() {
               to={to}
               end={end}
               className={({ isActive }) =>
-                `flex flex-1 flex-col items-center gap-1 py-2.5 text-[0.65rem] font-medium transition-colors ${
+                `relative flex flex-1 flex-col items-center gap-1 py-2.5 text-[0.65rem] font-medium transition-colors ${
                   isActive ? 'text-accent' : 'text-muted hover:text-text'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  <Icon active={isActive} />
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-indicator"
+                      className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-accent"
+                      transition={{ type: 'spring', damping: 30, stiffness: 380 }}
+                    />
+                  )}
+                  <motion.span
+                    animate={{ scale: isActive ? 1.08 : 1 }}
+                    transition={{ type: 'spring', damping: 18, stiffness: 400 }}
+                  >
+                    <Icon active={isActive} />
+                  </motion.span>
                   <span>{label}</span>
                 </>
               )}
