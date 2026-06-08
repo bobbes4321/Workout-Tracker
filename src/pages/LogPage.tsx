@@ -86,7 +86,14 @@ export function LogPage() {
       ) : (
         <div className="space-y-4">
           {sessionExerciseIds.map((id) => (
-            <ExerciseLogCard key={id} exercise={exMap.get(id)} date={date} />
+            <ExerciseLogCard
+              key={id}
+              exercise={exMap.get(id)}
+              date={date}
+              onRemove={(exId) =>
+                setPendingIds((p) => p.filter((x) => x !== exId))
+              }
+            />
           ))}
           <Button
             variant="surface"
@@ -116,9 +123,11 @@ const STEP_OPTIONS = [1, 2, 5]
 function ExerciseLogCard({
   exercise,
   date,
+  onRemove,
 }: {
   exercise?: Exercise
   date: string
+  onRemove: (exerciseId: number) => void
 }) {
   const allSets = useLiveQuery(
     () =>
@@ -192,6 +201,20 @@ function ExerciseLogCard({
     if (!setupDraft.trim()) setShowSetup(false)
   }
 
+  async function removeExercise() {
+    if (today.length > 0) {
+      const n = today.length
+      if (
+        !confirm(
+          `Remove ${exercise!.name} and its ${n} set${n === 1 ? '' : 's'} from ${relativeDay(date)}?`,
+        )
+      )
+        return
+      await db.sets.bulkDelete(today.map((s) => s.id!))
+    }
+    onRemove(exercise!.id!)
+  }
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="flex items-start justify-between gap-2">
@@ -209,9 +232,18 @@ function ExerciseLogCard({
             {exercise.setup ? 'Setup' : 'Add setup'}
           </button>
         </div>
-        <span className="shrink-0 rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted">
-          {exercise.category}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs text-muted">
+            {exercise.category}
+          </span>
+          <button
+            onClick={removeExercise}
+            aria-label="Remove exercise from session"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-muted active:bg-surface-2 active:text-danger"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {showSetup && (
