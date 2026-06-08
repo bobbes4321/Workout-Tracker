@@ -68,6 +68,38 @@ export interface Setting {
   value: number | string | boolean
 }
 
+/** What triggered an automatic snapshot — drives its label and is not pruned differently. */
+export type SnapshotReason =
+  | 'daily'
+  | 'manual'
+  | 'pre-import'
+  | 'pre-clear'
+  | 'pre-restore'
+
+export interface SnapshotCounts {
+  exercises: number
+  sets: number
+  goals: number
+  activities: number
+  bodyweights: number
+}
+
+/**
+ * A point-in-time on-device backup (see lib/backup.ts). Lives in its own Dexie
+ * table so it survives an import/restore of the data tables. `data` is a whole
+ * serialized backup file restored verbatim; `counts` is cached for display.
+ */
+export interface Snapshot {
+  id?: number
+  createdAt: number
+  reason: SnapshotReason
+  data: string
+  counts: SnapshotCounts
+}
+
+/** How many automatic snapshots to retain on-device (newest win). */
+export const MAX_SNAPSHOTS = 10
+
 export const SETTING_WEEKLY_TARGET = 'weeklyTarget'
 export const DEFAULT_WEEKLY_TARGET = 4
 

@@ -6,6 +6,7 @@ import type {
   Activity,
   BodyweightEntry,
   Setting,
+  Snapshot,
 } from './types'
 
 export class WorkoutDB extends Dexie {
@@ -15,6 +16,7 @@ export class WorkoutDB extends Dexie {
   activities!: Table<Activity, number>
   bodyweights!: Table<BodyweightEntry, number>
   settings!: Table<Setting, string>
+  snapshots!: Table<Snapshot, number>
 
   constructor() {
     super('workout-tracker')
@@ -33,10 +35,32 @@ export class WorkoutDB extends Dexie {
       bodyweights: '++id, date',
       settings: 'key',
     })
+    // v3: automatic on-device snapshots (additive — new table only).
+    this.version(3).stores({
+      exercises: '++id, name, category, archived',
+      sets: '++id, exerciseId, date, [exerciseId+date]',
+      goals: '++id, exerciseId, achievedAt',
+      activities: '++id, date, type',
+      bodyweights: '++id, date',
+      settings: 'key',
+      snapshots: '++id, createdAt, reason',
+    })
   }
 }
 
 export const db = new WorkoutDB()
+
+/**
+ * Ask the browser to keep our IndexedDB from being evicted under storage
+ * pressure. For installed/engaged PWAs this is usually granted without a
+ * prompt. Safe to call on every startup; resolves to whether storage is now
+ * persistent (false if the API is unsupported, e.g. older Safari).
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (!navigator.storage?.persist) return false
+  if (await navigator.storage.persisted()) return true
+  return navigator.storage.persist()
+}
 
 /** Upsert a single preference. */
 export function putSetting(key: string, value: number | string | boolean) {
