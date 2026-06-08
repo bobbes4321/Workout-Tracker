@@ -1,11 +1,26 @@
 import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../lib/db'
+import { db, putSetting } from '../lib/db'
 import type { Exercise, Goal, WorkoutSet } from '../lib/types'
+import {
+  DEFAULT_WEEKLY_TARGET,
+  SETTING_WEEKLY_TARGET,
+} from '../lib/types'
 import { e1rm, markPRs, round1 } from '../lib/calc'
-import { isoDate, fromNow, relativeDay } from '../lib/date'
+import {
+  buildHeatmap,
+  coverage,
+  daysThisWeek,
+  trainingDays,
+  weekStreak,
+} from '../lib/stats'
+import { isoDate, fromNow, relativeDay, startOfWeekIso } from '../lib/date'
 import { Card, EmptyState, PageHeader } from '../components/ui'
+import { WeeklyRing } from '../components/WeeklyRing'
+import { Heatmap } from '../components/Heatmap'
+import { CoverageBars } from '../components/CoverageBars'
+import { BodyweightCard } from '../components/BodyweightCard'
 
 const DAY = 86400000
 
@@ -28,7 +43,13 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const sets = useLiveQuery(() => db.sets.toArray(), [])
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
+  const activities = useLiveQuery(() => db.activities.toArray(), [])
   const goals = useLiveQuery(() => db.goals.toArray(), [])
+  const targetSetting = useLiveQuery(
+    () => db.settings.get(SETTING_WEEKLY_TARGET),
+    [],
+  )
+  const target = Number(targetSetting?.value ?? DEFAULT_WEEKLY_TARGET)
 
   const exMap = useMemo(() => {
     const m = new Map<number, Exercise>()
@@ -46,27 +67,39 @@ export function DashboardPage() {
     return m
   }, [sets])
 
-  const allDates = useMemo(() => {
-    const set = new Set((sets ?? []).map((s) => s.date))
-    return [...set].sort((a, b) => b.localeCompare(a))
-  }, [sets])
+  // Distinct training days (lifts + bouldering), newest first.
+  const trainDays = useMemo(
+    () => trainingDays(sets ?? [], activities ?? []),
+    [sets, activities],
+  )
+  const recentDays = useMemo(
+    () => [...trainDays].sort((a, b) => b.localeCompare(a)),
+    [trainDays],
+  )
+  const boulderDays = useMemo(
+    () => new Set((activities ?? []).map((a) => a.date)),
+    [activities],
+  )
 
-  const week = useMemo(() => {
-    const cur = { sessions: new Set<string>(), volume: 0, count: 0 }
-    const prev = { sessions: new Set<string>(), volume: 0, count: 0 }
+  const streak = useMemo(() => weekStreak(trainDays), [trainDays])
+  const thisWeek = useMemo(() => daysThisWeek(trainDays), [trainDays])
+  const heatmap = useMemo(
+    () => buildHeatmap(sets ?? [], activities ?? [], 12),
+    [sets, activities],
+  )
+  const coverageRows = useMemo(
+    () => coverage(sets ?? [], activities ?? [], exercises ?? [], 28),
+    [sets, activities, exercises],
+  )
+
+  // Volume for the current (Monday-start) week, matching the ring/streak above.
+  const weekVolume = useMemo(() => {
+    const weekStart = startOfWeekIso(isoDate())
+    let v = 0
     for (const s of sets ?? []) {
-      const d = diffDays(s.date)
-      if (d >= 0 && d <= 6) {
-        cur.sessions.add(s.date)
-        cur.volume += s.weight * s.reps
-        cur.count++
-      } else if (d >= 7 && d <= 13) {
-        prev.sessions.add(s.date)
-        prev.volume += s.weight * s.reps
-        prev.count++
-      }
+      if (s.date >= weekStart) v += s.weight * s.reps
     }
-    return { cur, prev }
+    return v
   }, [sets])
 
   const recentPRs = useMemo(() => {
@@ -125,8 +158,16 @@ export function DashboardPage() {
       .slice(0, 3)
   }, [goals, byExercise, exMap])
 
-  const loading = sets === undefined
-  const hasData = (sets?.length ?? 0) > 0
+  function editTarget() {
+    const input = prompt('Sessions per week to aim for:', String(target))
+    if (input == null) return
+    const n = parseInt(input, 10)
+    if (Number.isFinite(n) && n > 0 && n <= 14)
+      putSetting(SETTING_WEEKLY_TARGET, n)
+  }
+
+  const loading = sets === undefined || activities === undefined
+  const hasData = trainDays.size > 0
   const todayCount = (sets ?? []).filter((s) => s.date === isoDate()).length
 
   return (
@@ -139,12 +180,12 @@ export function DashboardPage() {
           month: 'long',
         })}
         right={
-          allDates.length > 0 ? (
+          trainDays.size > 0 ? (
             <div className="rounded-xl bg-surface-2 px-3 py-2 text-center">
               <p className="text-lg font-bold leading-none tabular-nums">
-                {allDates.length}
+                {trainDays.size}
               </p>
-              <p className="text-[0.6rem] text-muted">sessions</p>
+              <p className="text-[0.6rem] text-muted">days trained</p>
             </div>
           ) : undefined
         }
@@ -185,28 +226,42 @@ export function DashboardPage() {
             </span>
           </button>
 
-          {/* This week */}
+          {/* This week: target ring + streak */}
           <section>
             <SectionHeader title="This week" />
-            <div className="grid grid-cols-3 gap-2">
-              <WeekStat
-                label="Sessions"
-                value={week.cur.sessions.size}
-                delta={week.cur.sessions.size - week.prev.sessions.size}
-              />
-              <WeekStat
-                label="Volume"
-                value={Math.round(week.cur.volume).toLocaleString()}
-                unit="kg"
-                delta={Math.round(week.cur.volume - week.prev.volume)}
-                deltaUnit="kg"
-              />
-              <WeekStat
-                label="Sets"
-                value={week.cur.count}
-                delta={week.cur.count - week.prev.count}
-              />
-            </div>
+            <Card className="flex items-center gap-4">
+              <WeeklyRing value={thisWeek} target={target} onEdit={editTarget} />
+              <div className="grid flex-1 grid-cols-3 gap-2">
+                <Fact label="Streak" value={streak} unit={streak === 1 ? 'wk' : 'wks'} />
+                <Fact label="Volume" value={Math.round(weekVolume).toLocaleString()} unit="kg" />
+                <Fact label="Days left" value={Math.max(0, target - thisWeek)} />
+              </div>
+            </Card>
+            <p className="mt-1.5 px-1 text-[0.65rem] text-muted">
+              Tap the ring to change your weekly target.
+            </p>
+          </section>
+
+          {/* Consistency calendar */}
+          <section>
+            <SectionHeader title="Consistency · last 12 weeks" />
+            <Card>
+              <Heatmap weeks={heatmap} />
+            </Card>
+          </section>
+
+          {/* Muscle-group coverage */}
+          <section>
+            <SectionHeader title="Muscle-group balance · last 4 weeks" />
+            <Card>
+              <CoverageBars rows={coverageRows} />
+            </Card>
+          </section>
+
+          {/* Bodyweight */}
+          <section>
+            <SectionHeader title="Bodyweight" />
+            <BodyweightCard />
           </section>
 
           {/* Recent PRs */}
@@ -276,11 +331,12 @@ export function DashboardPage() {
           <section>
             <SectionHeader title="Recent sessions" to="/history" linkLabel="History" />
             <div className="space-y-2">
-              {allDates.slice(0, 3).map((date) => (
+              {recentDays.slice(0, 3).map((date) => (
                 <SessionRow
                   key={date}
                   date={date}
                   sets={(sets ?? []).filter((s) => s.date === date)}
+                  bouldering={boulderDays.has(date)}
                   exMap={exMap}
                 />
               ))}
@@ -327,38 +383,22 @@ function SectionHeader({
   )
 }
 
-function WeekStat({
+function Fact({
   label,
   value,
   unit,
-  delta,
-  deltaUnit,
 }: {
   label: string
   value: number | string
   unit?: string
-  delta: number
-  deltaUnit?: string
 }) {
-  const show = delta !== 0
-  const up = delta > 0
   return (
-    <div className="rounded-xl bg-surface p-3">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-1 text-xl font-bold tabular-nums">
+    <div className="rounded-xl bg-surface-2 px-2 py-2 text-center">
+      <p className="text-lg font-bold leading-none tabular-nums">
         {value}
-        {unit && <span className="ml-0.5 text-xs font-medium text-muted">{unit}</span>}
+        {unit && <span className="ml-0.5 text-[0.6rem] font-medium text-muted">{unit}</span>}
       </p>
-      {show ? (
-        <p
-          className={`mt-0.5 text-[0.65rem] font-semibold ${up ? 'text-accent' : 'text-muted'}`}
-        >
-          {up ? '▲' : '▼'} {Math.abs(delta).toLocaleString()}
-          {deltaUnit ? ` ${deltaUnit}` : ''} vs last
-        </p>
-      ) : (
-        <p className="mt-0.5 text-[0.65rem] text-muted/60">—</p>
-      )}
+      <p className="mt-1 text-[0.6rem] text-muted">{label}</p>
     </div>
   )
 }
@@ -366,10 +406,12 @@ function WeekStat({
 function SessionRow({
   date,
   sets,
+  bouldering,
   exMap,
 }: {
   date: string
   sets: WorkoutSet[]
+  bouldering: boolean
   exMap: Map<number, Exercise>
 }) {
   const exCount = new Set(sets.map((s) => s.exerciseId)).size
@@ -377,7 +419,7 @@ function SessionRow({
   const names = [...new Set(sets.map((s) => exMap.get(s.exerciseId)?.name))]
     .filter(Boolean)
     .slice(0, 3)
-    .join(', ')
+  if (bouldering) names.unshift('🧗 Bouldering')
   return (
     <Link
       to="/history"
@@ -385,15 +427,21 @@ function SessionRow({
     >
       <div className="min-w-0">
         <p className="text-sm font-semibold">{relativeDay(date)}</p>
-        <p className="truncate text-xs text-muted">{names}</p>
+        <p className="truncate text-xs text-muted">{names.join(', ')}</p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="text-xs font-medium tabular-nums">
-          {exCount} ex · {sets.length} sets
-        </p>
-        <p className="text-[0.65rem] text-muted tabular-nums">
-          {Math.round(volume).toLocaleString()} kg
-        </p>
+        {sets.length > 0 ? (
+          <>
+            <p className="text-xs font-medium tabular-nums">
+              {exCount} ex · {sets.length} sets
+            </p>
+            <p className="text-[0.65rem] text-muted tabular-nums">
+              {Math.round(volume).toLocaleString()} kg
+            </p>
+          </>
+        ) : (
+          <p className="text-xs font-medium text-muted">rest-day climb</p>
+        )}
       </div>
     </Link>
   )

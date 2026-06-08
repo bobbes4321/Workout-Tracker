@@ -1,10 +1,20 @@
 import Dexie, { type Table } from 'dexie'
-import type { Exercise, WorkoutSet, Goal } from './types'
+import type {
+  Exercise,
+  WorkoutSet,
+  Goal,
+  Activity,
+  BodyweightEntry,
+  Setting,
+} from './types'
 
 export class WorkoutDB extends Dexie {
   exercises!: Table<Exercise, number>
   sets!: Table<WorkoutSet, number>
   goals!: Table<Goal, number>
+  activities!: Table<Activity, number>
+  bodyweights!: Table<BodyweightEntry, number>
+  settings!: Table<Setting, string>
 
   constructor() {
     super('workout-tracker')
@@ -14,10 +24,24 @@ export class WorkoutDB extends Dexie {
       sets: '++id, exerciseId, date, [exerciseId+date]',
       goals: '++id, exerciseId, achievedAt',
     })
+    // v2: bouldering/activity log, bodyweight log, and a key/value settings store.
+    this.version(2).stores({
+      exercises: '++id, name, category, archived',
+      sets: '++id, exerciseId, date, [exerciseId+date]',
+      goals: '++id, exerciseId, achievedAt',
+      activities: '++id, date, type',
+      bodyweights: '++id, date',
+      settings: 'key',
+    })
   }
 }
 
 export const db = new WorkoutDB()
+
+/** Upsert a single preference. */
+export function putSetting(key: string, value: number | string | boolean) {
+  return db.settings.put({ key, value })
+}
 
 const STARTER_EXERCISES: Array<Pick<Exercise, 'name' | 'category'>> = [
   { name: 'Barbell Incline Bench', category: 'Chest' },
@@ -38,9 +62,20 @@ const STARTER_EXERCISES: Array<Pick<Exercise, 'name' | 'category'>> = [
 
 /** Permanently delete all data and re-seed the starter exercise list. */
 export async function clearAllData() {
-  await db.transaction('rw', db.exercises, db.sets, db.goals, async () => {
-    await Promise.all([db.sets.clear(), db.goals.clear(), db.exercises.clear()])
-  })
+  await db.transaction(
+    'rw',
+    [db.exercises, db.sets, db.goals, db.activities, db.bodyweights, db.settings],
+    async () => {
+      await Promise.all([
+        db.sets.clear(),
+        db.goals.clear(),
+        db.exercises.clear(),
+        db.activities.clear(),
+        db.bodyweights.clear(),
+        db.settings.clear(),
+      ])
+    },
+  )
   await seedIfEmpty()
 }
 

@@ -39,6 +39,38 @@ export interface Goal {
   achievedAt?: number
 }
 
+/** A non-lift training activity (no weight×reps), e.g. a bouldering session. */
+export interface Activity {
+  id?: number
+  type: ActivityType
+  /** YYYY-MM-DD (local). Grouped into a day like sets are. */
+  date: string
+  /** Optional session length in minutes. */
+  durationMin?: number
+  note?: string
+  createdAt: number
+}
+
+export type ActivityType = 'bouldering'
+
+/** A bodyweight measurement on a given day. */
+export interface BodyweightEntry {
+  id?: number
+  /** YYYY-MM-DD (local). At most one entry per day (latest wins). */
+  date: string
+  weight: number
+  createdAt: number
+}
+
+/** Tiny key/value store for app preferences (kept in Dexie so backups carry it). */
+export interface Setting {
+  key: string
+  value: number | string | boolean
+}
+
+export const SETTING_WEEKLY_TARGET = 'weeklyTarget'
+export const DEFAULT_WEEKLY_TARGET = 4
+
 export const CATEGORIES = [
   'Chest',
   'Back',
@@ -50,3 +82,16 @@ export const CATEGORIES = [
 ] as const
 
 export type Category = (typeof CATEGORIES)[number]
+
+/** Per-activity metadata: how it's labelled and which muscle groups it covers. */
+export const ACTIVITY_INFO: Record<
+  ActivityType,
+  { label: string; icon: string; categories: Category[] }
+> = {
+  bouldering: {
+    label: 'Bouldering',
+    icon: '🧗',
+    // Counts as pulling/back, arm and core work for muscle-group coverage.
+    categories: ['Back', 'Arms', 'Core'],
+  },
+}

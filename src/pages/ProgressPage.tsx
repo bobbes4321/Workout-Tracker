@@ -55,6 +55,10 @@ export function ProgressPage() {
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
   const sets = useLiveQuery(() => db.sets.toArray(), [])
   const goals = useLiveQuery(() => db.goals.toArray(), [])
+  const latestBw = useLiveQuery(
+    () => db.bodyweights.orderBy('date').last(),
+    [],
+  )
 
   const exMap = useMemo(() => {
     const m = new Map<number, Exercise>()
@@ -116,6 +120,7 @@ export function ProgressPage() {
         sets={byExercise.get(selectedId) ?? []}
         exercise={exMap.get(selectedId)}
         goals={goals ?? []}
+        bodyweight={latestBw?.weight}
         onBack={() => setSelectedId(null)}
         onPick={setSelectedId}
       />
@@ -236,6 +241,7 @@ function Detail({
   sets,
   exercise,
   goals,
+  bodyweight,
   onBack,
   onPick,
 }: {
@@ -244,6 +250,7 @@ function Detail({
   sets: WorkoutSet[]
   exercise?: Exercise
   goals: Goal[]
+  bodyweight?: number
   onBack: () => void
   onPick: (id: number) => void
 }) {
@@ -381,7 +388,16 @@ function Detail({
               unit={unit}
               sub={prsAll.bestWeight ? `×${prsAll.bestWeight.reps}` : undefined}
             />
-            <Stat label="Best e1RM" value={prsAll.bestE1rm?.value ?? '–'} unit={unit} />
+            <Stat
+              label="Best e1RM"
+              value={prsAll.bestE1rm?.value ?? '–'}
+              unit={unit}
+              sub={
+                bodyweight && bodyweight > 0 && prsAll.bestE1rm
+                  ? `${Math.round((prsAll.bestE1rm.value / bodyweight) * 100) / 100}× BW`
+                  : undefined
+              }
+            />
             <Stat
               label="Sessions"
               value={series.length}

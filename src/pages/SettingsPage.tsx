@@ -1,7 +1,11 @@
 import { useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { clearAllData, db } from '../lib/db'
+import { clearAllData, db, putSetting } from '../lib/db'
 import type { Exercise } from '../lib/types'
+import {
+  DEFAULT_WEEKLY_TARGET,
+  SETTING_WEEKLY_TARGET,
+} from '../lib/types'
 import { exportData, importData } from '../lib/backup'
 import { Button, Card, PageHeader } from '../components/ui'
 
@@ -9,13 +13,21 @@ export function SettingsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [msg, setMsg] = useState<string | null>(null)
 
+  const targetSetting = useLiveQuery(
+    () => db.settings.get(SETTING_WEEKLY_TARGET),
+    [],
+  )
+  const target = Number(targetSetting?.value ?? DEFAULT_WEEKLY_TARGET)
+
   const counts = useLiveQuery(async () => {
-    const [exercises, sets, goals] = await Promise.all([
+    const [exercises, sets, goals, bouldering, bodyweights] = await Promise.all([
       db.exercises.where('archived').notEqual(1).count(),
       db.sets.count(),
       db.goals.count(),
+      db.activities.count(),
+      db.bodyweights.count(),
     ])
-    return { exercises, sets, goals }
+    return { exercises, sets, goals, bouldering, bodyweights }
   }, [])
 
   async function onImportFile(file: File) {
@@ -64,11 +76,43 @@ export function SettingsPage() {
       </Card>
 
       <Card className="mb-4">
+        <h2 className="mb-1 font-bold">Weekly target</h2>
+        <p className="mb-3 text-sm text-muted">
+          How many days a week you're aiming to train. Drives the ring and streak
+          on your dashboard.
+        </p>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="surface"
+            className="h-11 w-11 !px-0 text-xl"
+            disabled={target <= 1}
+            onClick={() => putSetting(SETTING_WEEKLY_TARGET, target - 1)}
+          >
+            −
+          </Button>
+          <span className="min-w-12 text-center text-2xl font-extrabold tabular-nums">
+            {target}
+          </span>
+          <Button
+            variant="surface"
+            className="h-11 w-11 !px-0 text-xl"
+            disabled={target >= 14}
+            onClick={() => putSetting(SETTING_WEEKLY_TARGET, target + 1)}
+          >
+            +
+          </Button>
+          <span className="text-sm text-muted">days / week</span>
+        </div>
+      </Card>
+
+      <Card className="mb-4">
         <h2 className="mb-3 font-bold">Your data</h2>
         <div className="grid grid-cols-3 gap-2 text-center">
           <Count label="Exercises" value={counts?.exercises} />
           <Count label="Sets" value={counts?.sets} />
           <Count label="Goals" value={counts?.goals} />
+          <Count label="Bouldering" value={counts?.bouldering} />
+          <Count label="Bodyweight" value={counts?.bodyweights} />
         </div>
       </Card>
 

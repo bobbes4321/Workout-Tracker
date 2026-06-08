@@ -7,6 +7,7 @@ import { isoDate, relativeDay } from '../lib/date'
 import { Button, EmptyState, PageHeader } from '../components/ui'
 import { ExercisePicker } from '../components/ExercisePicker'
 import { Stepper } from '../components/Stepper'
+import { ActivityCard } from '../components/ActivityCard'
 
 export function LogPage() {
   const [date, setDate] = useState(isoDate())
@@ -70,9 +71,13 @@ export function LogPage() {
         }
       />
 
+      <div className="mb-4">
+        <ActivityCard date={date} />
+      </div>
+
       {sessionExerciseIds.length === 0 ? (
         <EmptyState
-          title="Nothing logged yet"
+          title="No lifts logged yet"
           hint="Add an exercise and punch in your sets as you go."
           action={
             <Button onClick={() => setPickerOpen(true)}>+ Add exercise</Button>

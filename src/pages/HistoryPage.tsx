@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
-import type { Exercise, WorkoutSet } from '../lib/types'
+import type { Activity, Exercise, WorkoutSet } from '../lib/types'
+import { ACTIVITY_INFO } from '../lib/types'
 import { setStats } from '../lib/calc'
 import { relativeDay } from '../lib/date'
 import { Card, EmptyState, PageHeader } from '../components/ui'
 
 export function HistoryPage() {
   const sets = useLiveQuery(() => db.sets.toArray(), [])
+  const activities = useLiveQuery(() => db.activities.toArray(), [])
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
 
   const exMap = useMemo(() => {
@@ -17,14 +19,16 @@ export function HistoryPage() {
   }, [exercises])
 
   const sessions = useMemo(() => {
-    const byDate = new Map<string, WorkoutSet[]>()
-    for (const s of sets ?? []) {
-      const arr = byDate.get(s.date)
-      if (arr) arr.push(s)
-      else byDate.set(s.date, [s])
+    const byDate = new Map<string, { sets: WorkoutSet[]; activities: Activity[] }>()
+    const day = (d: string) => {
+      let e = byDate.get(d)
+      if (!e) byDate.set(d, (e = { sets: [], activities: [] }))
+      return e
     }
+    for (const s of sets ?? []) day(s.date).sets.push(s)
+    for (const a of activities ?? []) day(a.date).activities.push(a)
     return [...byDate.entries()].sort((a, b) => b[0].localeCompare(a[0]))
-  }, [sets])
+  }, [sets, activities])
 
   return (
     <div>
@@ -39,11 +43,12 @@ export function HistoryPage() {
         />
       ) : (
         <div className="space-y-3">
-          {sessions.map(([date, daySets]) => (
+          {sessions.map(([date, day]) => (
             <SessionCard
               key={date}
               date={date}
-              sets={daySets}
+              sets={day.sets}
+              activities={day.activities}
               exMap={exMap}
             />
           ))}
@@ -56,10 +61,12 @@ export function HistoryPage() {
 function SessionCard({
   date,
   sets,
+  activities,
   exMap,
 }: {
   date: string
   sets: WorkoutSet[]
+  activities: Activity[]
   exMap: Map<number, Exercise>
 }) {
   const [open, setOpen] = useState(false)
@@ -79,6 +86,11 @@ function SessionCard({
 
   const volume = sets.reduce((sum, s) => sum + s.weight * s.reps, 0)
 
+  const summary =
+    byExercise.length > 0
+      ? `${byExercise.length} exercise${byExercise.length === 1 ? '' : 's'} · ${sets.length} set${sets.length === 1 ? '' : 's'} · ${Math.round(volume).toLocaleString()} kg volume`
+      : activities.map((a) => ACTIVITY_INFO[a.type].label).join(', ')
+
   return (
     <Card>
       <button
@@ -86,12 +98,15 @@ function SessionCard({
         onClick={() => setOpen((o) => !o)}
       >
         <div>
-          <p className="font-bold">{relativeDay(date)}</p>
-          <p className="text-xs text-muted">
-            {byExercise.length} exercise{byExercise.length === 1 ? '' : 's'} ·{' '}
-            {sets.length} set{sets.length === 1 ? '' : 's'} ·{' '}
-            {Math.round(volume).toLocaleString()} kg volume
+          <p className="font-bold">
+            {relativeDay(date)}
+            {activities.length > 0 && (
+              <span className="ml-1.5" title="bouldering">
+                {ACTIVITY_INFO.bouldering.icon}
+              </span>
+            )}
           </p>
+          <p className="text-xs text-muted">{summary}</p>
         </div>
         <span
           className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`}
@@ -102,6 +117,17 @@ function SessionCard({
 
       {open && (
         <div className="mt-4 space-y-4">
+          {activities.map((a) => (
+            <div key={a.id} className="flex items-center justify-between">
+              <p className="text-sm font-semibold">
+                {ACTIVITY_INFO[a.type].icon} {ACTIVITY_INFO[a.type].label}
+              </p>
+              <span className="text-xs text-muted">
+                {a.durationMin ? `${a.durationMin} min` : 'logged'}
+                {a.note ? ` · ${a.note}` : ''}
+              </span>
+            </div>
+          ))}
           {byExercise.map(([exId, exSets]) => (
             <div key={exId}>
               <div className="mb-1.5 flex items-center justify-between">
@@ -127,8 +153,9 @@ function SessionCard({
           ))}
           <button
             onClick={() => {
-              if (confirm(`Delete all sets from ${relativeDay(date)}?`)) {
+              if (confirm(`Delete everything logged on ${relativeDay(date)}?`)) {
                 db.sets.bulkDelete(sets.map((s) => s.id!))
+                db.activities.bulkDelete(activities.map((a) => a.id!))
               }
             }}
             className="text-xs text-muted hover:text-danger"

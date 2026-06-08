@@ -1,13 +1,22 @@
 import type { WorkoutSet } from './types'
 
 /**
- * Estimated one-rep max using the Epley formula.
- * For 1 rep this returns the weight itself.
+ * Reps above this are clamped for the e1RM estimate. The Epley formula is only
+ * meaningful in the low-rep, strength range — past ~12 reps it balloons (20 reps
+ * → 1.67×), so high-rep accessory/cable sets would otherwise post fake strength
+ * PRs. Clamping keeps e1RM honest as a *strength* signal across the whole app.
+ */
+export const E1RM_REP_CAP = 12
+
+/**
+ * Estimated one-rep max using the Epley formula, with reps capped (see
+ * {@link E1RM_REP_CAP}). For 1 rep this returns the weight itself.
  */
 export function e1rm(weight: number, reps: number): number {
   if (reps <= 0 || weight <= 0) return 0
   if (reps === 1) return weight
-  return weight * (1 + reps / 30)
+  const r = Math.min(reps, E1RM_REP_CAP)
+  return weight * (1 + r / 30)
 }
 
 export function round1(n: number): number {

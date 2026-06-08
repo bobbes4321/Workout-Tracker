@@ -14,7 +14,10 @@ dist-ssr
 
 # Local demo-data helpers (not part of the app)
 generate-demo-data.mjs
+augment-demo-v2.mjs
 workout-backup-demo.json
+workout-backup-demo-v2.json
+.sanity/
 
 # Editor directories and files
 .vscode/*

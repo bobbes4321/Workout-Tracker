@@ -6,6 +6,30 @@ export function isoDate(d: Date = new Date()): string {
   return `${y}-${m}-${day}`
 }
 
+/** Add n days to a YYYY-MM-DD string, returning a YYYY-MM-DD string (local). */
+export function addDaysIso(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return isoDate(new Date(y, m - 1, d + n))
+}
+
+/** Start of the week (Monday by default) for a YYYY-MM-DD string. */
+export function startOfWeekIso(iso: string, weekStartsOn = 1): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const day = new Date(y, m - 1, d).getDay() // 0=Sun … 6=Sat
+  const diff = (day - weekStartsOn + 7) % 7
+  return isoDate(new Date(y, m - 1, d - diff))
+}
+
+/** Whole days between two YYYY-MM-DD strings (a - b), local-safe. */
+export function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  return Math.round(
+    (new Date(ay, am - 1, ad).getTime() - new Date(by, bm - 1, bd).getTime()) /
+      86400000,
+  )
+}
+
 /** "Mon 26 Sep" style label from a YYYY-MM-DD string. */
 export function prettyDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
