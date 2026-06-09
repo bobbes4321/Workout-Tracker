@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { db } from '../lib/db'
 import type { GoalMetric, Exercise, WorkoutSet } from '../lib/types'
 import { e1rm, markPRs, setStats } from '../lib/calc'
-import { isoDate, relativeDay } from '../lib/date'
+import { formatDmy, isoDate, relativeDay } from '../lib/date'
 import { celebrateGoal, celebratePR } from '../lib/celebrate'
 import { Button, EmptyState, PageHeader } from '../components/ui'
 import { useDialog } from '../components/Dialog'
@@ -62,7 +62,7 @@ export function LogPage() {
         }`}
         right={
           <label className="relative cursor-pointer rounded-xl bg-surface-2 px-3 py-2 text-sm font-medium text-muted active:bg-border">
-            {relativeDay(date) === 'Today' ? '📅 Today' : '📅 ' + date}
+            {relativeDay(date) === 'Today' ? '📅 Today' : '📅 ' + formatDmy(date)}
             <input
               type="date"
               value={date}

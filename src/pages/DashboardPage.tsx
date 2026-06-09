@@ -15,7 +15,7 @@ import {
   trainingDays,
   weekStreak,
 } from '../lib/stats'
-import { isoDate, fromNow, relativeDay, startOfWeekIso } from '../lib/date'
+import { isoDate, fromNow, longToday, relativeDay, startOfWeekIso } from '../lib/date'
 import { Card, EmptyState, PageHeader } from '../components/ui'
 import { useDialog } from '../components/Dialog'
 import { CountUp } from '../components/CountUp'
@@ -183,11 +183,7 @@ export function DashboardPage() {
     <div>
       <PageHeader
         title={`${greeting()} 👋`}
-        subtitle={new Date().toLocaleDateString(undefined, {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-        })}
+        subtitle={longToday()}
         right={
           trainDays.size > 0 ? (
             <div className="rounded-xl bg-surface-2 px-3 py-2 text-center">

@@ -1,4 +1,42 @@
 import type { ReactNode } from 'react'
+import { formatDmy } from '../lib/date'
+
+/**
+ * Date picker whose visible text we control (always day-first DD/MM/YYYY),
+ * while a transparent native <input type="date"> overlaid on top still opens
+ * the device's calendar. Native date inputs format themselves from the
+ * browser's UI language, which on a Belgian device set to English shows
+ * month-first — this sidesteps that.
+ */
+export function DateField({
+  value,
+  onChange,
+  max,
+  className = '',
+}: {
+  value: string
+  onChange: (v: string) => void
+  max?: string
+  className?: string
+}) {
+  return (
+    <label
+      className={`relative flex cursor-pointer items-center justify-between rounded-xl border border-border bg-surface-2 px-4 py-3 text-base ${className}`}
+    >
+      <span className="tabular-nums">{formatDmy(value)}</span>
+      <span aria-hidden className="text-muted">
+        📅
+      </span>
+      <input
+        type="date"
+        value={value}
+        max={max}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+    </label>
+  )
+}
 
 export function PageHeader({
   title,

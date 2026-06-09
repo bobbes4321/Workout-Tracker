@@ -1,3 +1,25 @@
+/**
+ * Fixed display locale so dates render the same on every device — day-first,
+ * English month/day names — regardless of the browser's UI language. (We're a
+ * single-user, European app; this avoids US month-first ordering.)
+ */
+const LOCALE = 'en-GB'
+
+/** "09/06/2026" — explicit day-first numeric, fully locale-independent. */
+export function formatDmy(iso: string): string {
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${y}`
+}
+
+/** Today as e.g. "Tuesday, 9 June" for page headers. */
+export function longToday(): string {
+  return new Date().toLocaleDateString(LOCALE, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+}
+
 /** Local YYYY-MM-DD for a Date (defaults to now). */
 export function isoDate(d: Date = new Date()): string {
   const y = d.getFullYear()
@@ -34,7 +56,7 @@ export function daysBetween(a: string, b: string): number {
 export function prettyDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   const date = new Date(y, m - 1, d)
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(LOCALE, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -45,18 +67,18 @@ export function prettyDate(iso: string): string {
 export function shortDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   const date = new Date(y, m - 1, d)
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  return date.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' })
 }
 
 export function shortDateMs(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
+  return new Date(ms).toLocaleDateString(LOCALE, {
     day: 'numeric',
     month: 'short',
   })
 }
 
 export function prettyDateMs(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
+  return new Date(ms).toLocaleDateString(LOCALE, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',

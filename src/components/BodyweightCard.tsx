@@ -13,7 +13,7 @@ import {
 import { db } from '../lib/db'
 import { dateToTs } from '../lib/calc'
 import { isoDate, prettyDateMs, relativeDay, shortDateMs } from '../lib/date'
-import { Button } from './ui'
+import { Button, DateField } from './ui'
 import { Stepper } from './Stepper'
 
 const DAY = 86400000
@@ -224,13 +224,7 @@ function BodyweightModal({
 
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-muted">Date</span>
-          <input
-            type="date"
-            value={date}
-            max={isoDate()}
-            onChange={(e) => e.target.value && setDate(e.target.value)}
-            className="w-full rounded-xl border border-border bg-surface-2 px-4 py-3 text-base outline-none focus:border-accent"
-          />
+          <DateField value={date} max={isoDate()} onChange={setDate} />
           <span className="mt-1 block text-xs text-muted">{relativeDay(date)}</span>
         </label>
 
