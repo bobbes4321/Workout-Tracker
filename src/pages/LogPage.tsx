@@ -3,7 +3,15 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'motion/react'
 import { db } from '../lib/db'
 import type { GoalMetric, Exercise, WorkoutSet } from '../lib/types'
-import { e1rm, markPRs, setStats } from '../lib/calc'
+import {
+  bodyweightResolver,
+  e1rm,
+  effectiveSets,
+  effectiveWeight,
+  isBodyweight,
+  markPRs,
+  setStats,
+} from '../lib/calc'
 import { formatDmy, isoDate, relativeDay } from '../lib/date'
 import { celebrateGoal, celebratePR } from '../lib/celebrate'
 import { Button, EmptyState, PageHeader } from '../components/ui'
@@ -156,6 +164,11 @@ function ExerciseLogCard({
         : [],
     [exercise?.id],
   )
+  const bodyweights = useLiveQuery(() => db.bodyweights.toArray(), [])
+  const bwAt = useMemo(
+    () => bodyweightResolver(bodyweights ?? []),
+    [bodyweights],
+  )
 
   const [weight, setWeight] = useState('')
   const [reps, setReps] = useState('')
@@ -185,7 +198,10 @@ function ExerciseLogCard({
     }
   }, [allSets, date])
 
-  const prMap = useMemo(() => markPRs(allSets ?? []), [allSets])
+  const prMap = useMemo(
+    () => markPRs(effectiveSets(allSets ?? [], exercise, bwAt)),
+    [allSets, exercise, bwAt],
+  )
 
   // Smart prefill: start the inputs at the most recent set's numbers.
   const refSet = today[today.length - 1] ?? prev?.sets[prev.sets.length - 1]
@@ -202,7 +218,10 @@ function ExerciseLogCard({
   async function addSet(w: number, r: number) {
     if (!Number.isFinite(w) || !Number.isInteger(r) || w <= 0 || r <= 0) return
     const exId = exercise!.id!
-    const prior = allSets ?? []
+    // Compare in effective load (added + bodyweight) for bodyweight exercises;
+    // identical to raw weight otherwise. The stored set keeps the entered value.
+    const prior = effectiveSets(allSets ?? [], exercise, bwAt)
+    const ew = effectiveWeight({ weight: w, date }, exercise, bwAt)
     const prevBestE = prior.reduce((m, s) => Math.max(m, e1rm(s.weight, s.reps)), 0)
     const prevBestW = prior.reduce((m, s) => Math.max(m, s.weight), 0)
 
@@ -210,14 +229,14 @@ function ExerciseLogCard({
 
     // Celebrate only a genuine improvement (not the first-ever baseline set).
     const isPR =
-      prior.length > 0 && (e1rm(w, r) > prevBestE + 1e-9 || w > prevBestW)
+      prior.length > 0 && (e1rm(ew, r) > prevBestE + 1e-9 || ew > prevBestW)
     if (isPR) celebratePR()
 
     // Did this set just complete a not-yet-achieved goal for this exercise?
     const goals = await db.goals.where('exerciseId').equals(exId).toArray()
     for (const g of goals) {
       if (g.achievedAt) continue
-      if (bestForMetric(g.metric, prior, w, r) >= g.target) {
+      if (bestForMetric(g.metric, prior, ew, r) >= g.target) {
         await db.goals.update(g.id!, { achievedAt: Date.now() })
         celebrateGoal()
       }
@@ -333,6 +352,7 @@ function ExerciseLogCard({
           </span>
           {prev.sets.map((s) => (
             <span key={s.id} className="tabular-nums">
+              {isBodyweight(exercise) ? '+' : ''}
               {s.weight}×{s.reps}
             </span>
           ))}
@@ -355,6 +375,8 @@ function ExerciseLogCard({
                   set={s}
                   unit={unit}
                   isPR={prMap.get(s.id!)?.e1rmPR || prMap.get(s.id!)?.weightPR}
+                  added={isBodyweight(exercise)}
+                  bw={bwAt(s.date)}
                 />
               </motion.div>
             ))}
@@ -366,7 +388,7 @@ function ExerciseLogCard({
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs font-medium text-muted">
-              Weight ({unit})
+              {isBodyweight(exercise) ? 'Added' : 'Weight'} ({unit})
             </span>
             <button
               onClick={cycleStep}
@@ -424,13 +446,20 @@ function SetRow({
   set,
   unit,
   isPR,
+  added,
+  bw,
 }: {
   index: number
   set: WorkoutSet
   unit: string
   isPR?: boolean
+  /** True for bodyweight exercises — the weight is *added* load. */
+  added?: boolean
+  /** Bodyweight on this set's date, for the effective-load e1RM. */
+  bw?: number
 }) {
-  const { e1rm } = setStats(set)
+  const eff = added && bw != null ? set.weight + bw : set.weight
+  const { e1rm } = setStats({ weight: eff, reps: set.reps })
   return (
     <div
       className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
@@ -439,6 +468,7 @@ function SetRow({
     >
       <span className="w-5 text-xs font-semibold text-muted">{index}</span>
       <span className="font-semibold tabular-nums">
+        {added ? '+' : ''}
         {set.weight}
         <span className="text-muted"> {unit}</span>
       </span>

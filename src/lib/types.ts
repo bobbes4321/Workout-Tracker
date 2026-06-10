@@ -12,6 +12,13 @@ export interface Exercise {
   setup?: string
   /** Preferred weight increment for the +/- steppers (default 2.5). */
   weightStep?: number
+  /**
+   * If 1, the logged `weight` is *added* load on top of bodyweight (e.g. a
+   * weighted pull-up; 0 = pure bodyweight). Metrics (e1RM, PRs, goals, charts)
+   * use the effective load — added + your bodyweight on that date — so reps at
+   * bodyweight still count as progress. Non-indexed; no migration needed.
+   */
+  bodyweightBased?: 0 | 1
 }
 
 export interface WorkoutSet {

@@ -19,9 +19,13 @@ import { db } from '../lib/db'
 import type { Exercise, Goal, WorkoutSet } from '../lib/types'
 import {
   METRIC_LABEL,
+  bodyweightResolver,
   buildSeries,
   buildSetPoints,
   computePRs,
+  effectiveSets,
+  isBodyweight,
+  type BodyweightAt,
   type ProgressMetric,
   type ProgressPoint,
 } from '../lib/calc'
@@ -55,10 +59,13 @@ export function ProgressPage() {
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
   const sets = useLiveQuery(() => db.sets.toArray(), [])
   const goals = useLiveQuery(() => db.goals.toArray(), [])
-  const latestBw = useLiveQuery(
-    () => db.bodyweights.orderBy('date').last(),
-    [],
-  )
+  const bodyweights = useLiveQuery(() => db.bodyweights.toArray(), [])
+  const latestBw = useMemo(() => {
+    let best: { date: string; weight: number } | undefined
+    for (const b of bodyweights ?? []) if (!best || b.date > best.date) best = b
+    return best
+  }, [bodyweights])
+  const bwAt = useMemo(() => bodyweightResolver(bodyweights ?? []), [bodyweights])
 
   const exMap = useMemo(() => {
     const m = new Map<number, Exercise>()
@@ -81,7 +88,7 @@ export function ProgressPage() {
     for (const [exId, exSets] of byExercise) {
       const ex = exMap.get(exId)
       if (!ex || ex.archived === 1) continue
-      const series = buildSeries(exSets, 'e1rm')
+      const series = buildSeries(effectiveSets(exSets, ex, bwAt), 'e1rm')
       if (series.length === 0) continue
       const current = series[series.length - 1].value
       const first = series[0].value
@@ -96,7 +103,7 @@ export function ProgressPage() {
       })
     }
     return arr.sort((a, b) => b.lastDate.localeCompare(a.lastDate))
-  }, [byExercise, exMap])
+  }, [byExercise, exMap, bwAt])
 
   if (sets === undefined) return <PageHeader title="Progress" />
 
@@ -121,6 +128,7 @@ export function ProgressPage() {
         exercise={exMap.get(selectedId)}
         goals={goals ?? []}
         bodyweight={latestBw?.weight}
+        bwAt={bwAt}
         onBack={() => setSelectedId(null)}
         onPick={setSelectedId}
       />
@@ -238,10 +246,11 @@ function MiniSparkline({
 function Detail({
   exerciseId,
   cards,
-  sets,
+  sets: rawSets,
   exercise,
   goals,
   bodyweight,
+  bwAt,
   onBack,
   onPick,
 }: {
@@ -251,11 +260,18 @@ function Detail({
   exercise?: Exercise
   goals: Goal[]
   bodyweight?: number
+  bwAt: BodyweightAt
   onBack: () => void
   onPick: (id: number) => void
 }) {
   const [metric, setMetric] = useState<ProgressMetric>('e1rm')
   const [range, setRange] = useState<RangeKey>('all')
+
+  // Work in effective load (added + bodyweight) for bodyweight-based exercises.
+  const sets = useMemo(
+    () => effectiveSets(rawSets, exercise, bwAt),
+    [rawSets, exercise, bwAt],
+  )
 
   const cutoff = useMemo(() => {
     const days = RANGES.find((r) => r.key === range)!.days
@@ -305,6 +321,7 @@ function Detail({
         {exercise?.name}
         <span className="ml-2 align-middle text-xs font-medium text-muted">
           {exercise?.category}
+          {isBodyweight(exercise) && ' · incl. bodyweight'}
         </span>
       </h1>
 

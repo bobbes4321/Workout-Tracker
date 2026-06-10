@@ -3,7 +3,13 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import type { Activity, Exercise, WorkoutSet } from '../lib/types'
 import { ACTIVITY_INFO } from '../lib/types'
-import { setStats } from '../lib/calc'
+import {
+  bodyweightResolver,
+  effectiveWeight,
+  isBodyweight,
+  setStats,
+  type BodyweightAt,
+} from '../lib/calc'
 import { relativeDay } from '../lib/date'
 import { Card, EmptyState, PageHeader } from '../components/ui'
 import { useDialog } from '../components/Dialog'
@@ -12,12 +18,14 @@ export function HistoryPage() {
   const sets = useLiveQuery(() => db.sets.toArray(), [])
   const activities = useLiveQuery(() => db.activities.toArray(), [])
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
+  const bodyweights = useLiveQuery(() => db.bodyweights.toArray(), [])
 
   const exMap = useMemo(() => {
     const m = new Map<number, Exercise>()
     for (const e of exercises ?? []) m.set(e.id!, e)
     return m
   }, [exercises])
+  const bwAt = useMemo(() => bodyweightResolver(bodyweights ?? []), [bodyweights])
 
   const sessions = useMemo(() => {
     const byDate = new Map<string, { sets: WorkoutSet[]; activities: Activity[] }>()
@@ -51,6 +59,7 @@ export function HistoryPage() {
               sets={day.sets}
               activities={day.activities}
               exMap={exMap}
+              bwAt={bwAt}
             />
           ))}
         </div>
@@ -64,11 +73,13 @@ function SessionCard({
   sets,
   activities,
   exMap,
+  bwAt,
 }: {
   date: string
   sets: WorkoutSet[]
   activities: Activity[]
   exMap: Map<number, Exercise>
+  bwAt: BodyweightAt
 }) {
   const [open, setOpen] = useState(false)
   const { confirm } = useDialog()
@@ -86,7 +97,11 @@ function SessionCard({
     return [...m.entries()]
   }, [sets])
 
-  const volume = sets.reduce((sum, s) => sum + s.weight * s.reps, 0)
+  const volume = sets.reduce(
+    (sum, s) =>
+      sum + effectiveWeight(s, exMap.get(s.exerciseId), bwAt) * s.reps,
+    0,
+  )
 
   const summary =
     byExercise.length > 0
@@ -130,29 +145,30 @@ function SessionCard({
               </span>
             </div>
           ))}
-          {byExercise.map(([exId, exSets]) => (
-            <div key={exId}>
-              <div className="mb-1.5 flex items-center justify-between">
-                <p className="text-sm font-semibold">
-                  {exMap.get(exId)?.name ?? 'Unknown'}
-                </p>
-                <span className="text-xs text-muted">
-                  {exMap.get(exId)?.category}
-                </span>
+          {byExercise.map(([exId, exSets]) => {
+            const ex = exMap.get(exId)
+            const added = isBodyweight(ex)
+            return (
+              <div key={exId}>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <p className="text-sm font-semibold">{ex?.name ?? 'Unknown'}</p>
+                  <span className="text-xs text-muted">{ex?.category}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {exSets.map((s) => (
+                    <span
+                      key={s.id}
+                      className="rounded-lg bg-surface-2 px-2.5 py-1 text-xs tabular-nums"
+                      title={`e1RM ${setStats({ weight: effectiveWeight(s, ex, bwAt), reps: s.reps }).e1rm}`}
+                    >
+                      {added ? '+' : ''}
+                      {s.weight}×{s.reps}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {exSets.map((s) => (
-                  <span
-                    key={s.id}
-                    className="rounded-lg bg-surface-2 px-2.5 py-1 text-xs tabular-nums"
-                    title={`e1RM ${setStats(s).e1rm}`}
-                  >
-                    {s.weight}×{s.reps}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
+            )
+          })}
           <button
             onClick={async () => {
               const ok = await confirm({

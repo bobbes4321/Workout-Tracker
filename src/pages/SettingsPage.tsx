@@ -350,6 +350,11 @@ function ExerciseRow({ exercise: e }: { exercise: Exercise }) {
     setEditing(false)
   }
 
+  const isBw = e.bodyweightBased === 1
+  async function toggleBodyweight() {
+    await db.exercises.update(e.id!, { bodyweightBased: isBw ? 0 : 1 })
+  }
+
   return (
     <div className="py-2.5">
       <div className="flex items-center gap-2">
@@ -379,6 +384,21 @@ function ExerciseRow({ exercise: e }: { exercise: Exercise }) {
           Hide
         </button>
       </div>
+
+      <button
+        onClick={toggleBodyweight}
+        className="mt-1 flex items-center gap-2 text-xs text-muted active:text-text"
+        title="The logged weight is added load on top of your bodyweight (e.g. weighted pull-ups). Metrics use bodyweight + added."
+      >
+        <span
+          className={`flex h-4 w-4 items-center justify-center rounded border text-[0.6rem] ${
+            isBw ? 'border-accent bg-accent text-black' : 'border-border'
+          }`}
+        >
+          {isBw ? '✓' : ''}
+        </span>
+        Bodyweight exercise (log added weight)
+      </button>
 
       {!editing && e.setup && (
         <p className="mt-1 whitespace-pre-wrap rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">

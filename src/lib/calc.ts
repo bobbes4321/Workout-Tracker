@@ -1,4 +1,4 @@
-import type { WorkoutSet } from './types'
+import type { BodyweightEntry, Exercise, WorkoutSet } from './types'
 
 /**
  * Reps above this are clamped for the e1RM estimate. The Epley formula is only
@@ -21,6 +21,63 @@ export function e1rm(weight: number, reps: number): number {
 
 export function round1(n: number): number {
   return Math.round(n * 10) / 10
+}
+
+// ── Bodyweight-based exercises (e.g. weighted pull-ups) ─────────────────────
+// The logged `weight` is *added* load; the effective load that drives every
+// metric is `added + bodyweight on that date`. These helpers convert raw sets
+// into "effective" sets so the existing calc functions need no special-casing.
+
+/** Resolves the effective bodyweight for a given date. */
+export type BodyweightAt = (date: string) => number | undefined
+
+export function isBodyweight(ex?: Pick<Exercise, 'bodyweightBased'>): boolean {
+  return ex?.bodyweightBased === 1
+}
+
+/**
+ * Build a date→bodyweight resolver from the bodyweight log. Carries the most
+ * recent prior entry forward (bodyweight drifts slowly); before the first
+ * entry it uses the earliest known weight. Returns undefined only when the log
+ * is empty, in which case effective load falls back to the added weight alone.
+ */
+export function bodyweightResolver(entries: BodyweightEntry[]): BodyweightAt {
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+  return (date: string) => {
+    if (sorted.length === 0) return undefined
+    let result = sorted[0].weight
+    for (const b of sorted) {
+      if (b.date <= date) result = b.weight
+      else break
+    }
+    return result
+  }
+}
+
+/** The load a set actually moved: added + bodyweight for BW exercises, else the logged weight. */
+export function effectiveWeight(
+  set: Pick<WorkoutSet, 'weight' | 'date'>,
+  ex?: Pick<Exercise, 'bodyweightBased'>,
+  bwAt?: BodyweightAt,
+): number {
+  if (isBodyweight(ex) && bwAt) {
+    const bw = bwAt(set.date)
+    if (bw != null) return set.weight + bw
+  }
+  return set.weight
+}
+
+/**
+ * Clone sets with `weight` replaced by effective load, for feeding into the
+ * metric functions. No-op (returns the same array) for non-bodyweight exercises.
+ */
+export function effectiveSets(
+  sets: WorkoutSet[],
+  ex?: Pick<Exercise, 'bodyweightBased'>,
+  bwAt?: BodyweightAt,
+): WorkoutSet[] {
+  if (!isBodyweight(ex) || !bwAt) return sets
+  return sets.map((s) => ({ ...s, weight: effectiveWeight(s, ex, bwAt) }))
 }
 
 /** Midday timestamp for a YYYY-MM-DD string (stable x-value for charts). */

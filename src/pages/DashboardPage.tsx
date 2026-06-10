@@ -7,7 +7,14 @@ import {
   DEFAULT_WEEKLY_TARGET,
   SETTING_WEEKLY_TARGET,
 } from '../lib/types'
-import { e1rm, markPRs, round1 } from '../lib/calc'
+import {
+  bodyweightResolver,
+  e1rm,
+  effectiveSets,
+  effectiveWeight,
+  markPRs,
+  round1,
+} from '../lib/calc'
 import {
   buildHeatmap,
   coverage,
@@ -48,6 +55,7 @@ export function DashboardPage() {
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
   const activities = useLiveQuery(() => db.activities.toArray(), [])
   const goals = useLiveQuery(() => db.goals.toArray(), [])
+  const bodyweights = useLiveQuery(() => db.bodyweights.toArray(), [])
   const targetSetting = useLiveQuery(
     () => db.settings.get(SETTING_WEEKLY_TARGET),
     [],
@@ -70,6 +78,8 @@ export function DashboardPage() {
     }
     return m
   }, [sets])
+
+  const bwAt = useMemo(() => bodyweightResolver(bodyweights ?? []), [bodyweights])
 
   // Distinct training days (lifts + bouldering), newest first.
   const trainDays = useMemo(
@@ -101,10 +111,11 @@ export function DashboardPage() {
     const weekStart = startOfWeekIso(isoDate())
     let v = 0
     for (const s of sets ?? []) {
-      if (s.date >= weekStart) v += s.weight * s.reps
+      if (s.date >= weekStart)
+        v += effectiveWeight(s, exMap.get(s.exerciseId), bwAt) * s.reps
     }
     return v
-  }, [sets])
+  }, [sets, exMap, bwAt])
 
   const recentPRs = useMemo(() => {
     const events: {
@@ -114,29 +125,31 @@ export function DashboardPage() {
       value: string
     }[] = []
     for (const [exId, exSets] of byExercise) {
+      const ex = exMap.get(exId)
       const sorted = [...exSets].sort(
         (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
       )
-      const flags = markPRs(sorted)
+      // Flag PRs on effective load (added + bodyweight) for bodyweight exercises.
+      const flags = markPRs(effectiveSets(sorted, ex, bwAt))
       sorted.forEach((s, i) => {
         if (i === 0) return // baseline, not an achievement
         if (diffDays(s.date) > 45) return
         const f = flags.get(s.id!)
         if (!f) return
-        const ex = exMap.get(exId)
+        const ew = effectiveWeight(s, ex, bwAt)
         if (f.e1rmPR) {
           events.push({
             set: s,
             ex,
             kind: 'e1rm',
-            value: `${round1(e1rm(s.weight, s.reps))} ${ex?.unit ?? 'kg'} e1RM`,
+            value: `${round1(e1rm(ew, s.reps))} ${ex?.unit ?? 'kg'} e1RM`,
           })
         } else if (f.weightPR) {
           events.push({
             set: s,
             ex,
             kind: 'weight',
-            value: `${s.weight} ${ex?.unit ?? 'kg'} × ${s.reps}`,
+            value: `${ew} ${ex?.unit ?? 'kg'} × ${s.reps}`,
           })
         }
       })
@@ -144,23 +157,24 @@ export function DashboardPage() {
     return events
       .sort((a, b) => (b.set.createdAt ?? 0) - (a.set.createdAt ?? 0))
       .slice(0, 4)
-  }, [byExercise, exMap])
+  }, [byExercise, exMap, bwAt])
 
   const goalProgress = useMemo(() => {
     return (goals ?? [])
       .map((g) => {
-        const exSets = byExercise.get(g.exerciseId) ?? []
+        const ex = exMap.get(g.exerciseId)
+        const exSets = effectiveSets(byExercise.get(g.exerciseId) ?? [], ex, bwAt)
         const current = currentForGoal(g, exSets)
         return {
           goal: g,
-          ex: exMap.get(g.exerciseId),
+          ex,
           current,
           pct: g.target > 0 ? Math.min(100, (current / g.target) * 100) : 0,
         }
       })
       .sort((a, b) => b.pct - a.pct)
       .slice(0, 3)
-  }, [goals, byExercise, exMap])
+  }, [goals, byExercise, exMap, bwAt])
 
   async function editTarget() {
     const input = await prompt({

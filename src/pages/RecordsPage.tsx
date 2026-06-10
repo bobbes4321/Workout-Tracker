@@ -2,7 +2,13 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import type { Exercise, Goal, GoalMetric, WorkoutSet } from '../lib/types'
-import { computePRs, e1rm } from '../lib/calc'
+import {
+  bodyweightResolver,
+  computePRs,
+  e1rm,
+  effectiveSets,
+  isBodyweight,
+} from '../lib/calc'
 import { Button, Card, EmptyState, PageHeader, Pill } from '../components/ui'
 import { ExercisePicker } from '../components/ExercisePicker'
 
@@ -28,6 +34,7 @@ export function RecordsPage() {
 function useExerciseSets() {
   const sets = useLiveQuery(() => db.sets.toArray(), [])
   const exercises = useLiveQuery(() => db.exercises.toArray(), [])
+  const bodyweights = useLiveQuery(() => db.bodyweights.toArray(), [])
   const exMap = useMemo(() => {
     const m = new Map<number, Exercise>()
     for (const e of exercises ?? []) m.set(e.id!, e)
@@ -42,24 +49,25 @@ function useExerciseSets() {
     }
     return m
   }, [sets])
-  return { exMap, byExercise }
+  const bwAt = useMemo(() => bodyweightResolver(bodyweights ?? []), [bodyweights])
+  return { exMap, byExercise, bwAt }
 }
 
 function PRList() {
-  const { exMap, byExercise } = useExerciseSets()
+  const { exMap, byExercise, bwAt } = useExerciseSets()
 
   const rows = useMemo(() => {
     return [...byExercise.entries()]
-      .map(([exId, sets]) => ({
-        exercise: exMap.get(exId),
-        prs: computePRs(sets),
-      }))
+      .map(([exId, sets]) => {
+        const exercise = exMap.get(exId)
+        return { exercise, prs: computePRs(effectiveSets(sets, exercise, bwAt)) }
+      })
       .filter((r) => r.exercise)
       .sort(
         (a, b) =>
           (b.prs.bestE1rm?.value ?? 0) - (a.prs.bestE1rm?.value ?? 0),
       )
-  }, [byExercise, exMap])
+  }, [byExercise, exMap, bwAt])
 
   if (rows.length === 0) {
     return (
@@ -75,7 +83,14 @@ function PRList() {
       {rows.map(({ exercise, prs }) => (
         <Card key={exercise!.id}>
           <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="font-bold">{exercise!.name}</h2>
+            <h2 className="font-bold">
+              {exercise!.name}
+              {isBodyweight(exercise) && (
+                <span className="ml-1.5 align-middle text-[0.65rem] font-medium text-muted">
+                  incl. bodyweight
+                </span>
+              )}
+            </h2>
             <span className="text-xs text-muted">{exercise!.category}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center">
@@ -144,7 +159,7 @@ function currentFor(metric: GoalMetric, sets: WorkoutSet[]): number {
 }
 
 function GoalList() {
-  const { exMap, byExercise } = useExerciseSets()
+  const { exMap, byExercise, bwAt } = useExerciseSets()
   const goals = useLiveQuery(() => db.goals.toArray(), [])
   const [adding, setAdding] = useState(false)
 
@@ -160,9 +175,14 @@ function GoalList() {
         <div className="space-y-3">
           {(goals ?? [])
             .map((g) => {
-              const sets = byExercise.get(g.exerciseId) ?? []
+              const exercise = exMap.get(g.exerciseId)
+              const sets = effectiveSets(
+                byExercise.get(g.exerciseId) ?? [],
+                exercise,
+                bwAt,
+              )
               const current = currentFor(g.metric, sets)
-              return { g, current, exercise: exMap.get(g.exerciseId) }
+              return { g, current, exercise }
             })
             .sort((a, b) => {
               const ap = a.current / a.g.target
@@ -340,6 +360,13 @@ function AddGoal({ onClose }: { onClose: () => void }) {
             placeholder="e.g. 90"
             className="w-full rounded-xl border border-border bg-surface-2 px-4 py-3 text-base tabular-nums outline-none focus:border-accent"
           />
+          {isBodyweight(exercise) && metric !== 'reps' && (
+            <span className="mt-1 block text-xs text-muted">
+              This is a bodyweight exercise — set the target as the{' '}
+              <span className="text-text">total</span> load (your bodyweight +
+              added).
+            </span>
+          )}
         </label>
 
         <Button className="w-full" onClick={save} disabled={!target}>

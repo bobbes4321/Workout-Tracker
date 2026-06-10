@@ -67,7 +67,9 @@ export function putSetting(key: string, value: number | string | boolean) {
   return db.settings.put({ key, value })
 }
 
-const STARTER_EXERCISES: Array<Pick<Exercise, 'name' | 'category'>> = [
+const STARTER_EXERCISES: Array<
+  Pick<Exercise, 'name' | 'category'> & { bodyweightBased?: 0 | 1 }
+> = [
   { name: 'Barbell Incline Bench', category: 'Chest' },
   { name: 'Dumbbell Neutral Bench', category: 'Chest' },
   { name: 'Dumbbell Incline Press', category: 'Chest' },
@@ -75,7 +77,7 @@ const STARTER_EXERCISES: Array<Pick<Exercise, 'name' | 'category'>> = [
   { name: 'Lateral Raises (Dumbbell)', category: 'Shoulders' },
   { name: 'Lateral Raises (Cable)', category: 'Shoulders' },
   { name: 'Cable Rows', category: 'Back' },
-  { name: 'Pull-ups', category: 'Back' },
+  { name: 'Pull-ups', category: 'Back', bodyweightBased: 1 },
   { name: 'Deadlift', category: 'Legs' },
   { name: 'Squats', category: 'Legs' },
   { name: 'Tricep Pushdown', category: 'Arms' },
